@@ -1,0 +1,10 @@
+services:
+  inventec-ai-studio:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      API_BASE_URL: "${API_BASE_URL:-http://99.64.152.85:5000}"
+
