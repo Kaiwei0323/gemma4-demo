@@ -11,6 +11,12 @@ const sendBtnEl = el("sendBtn");
 
 let chatOpened = false;
 
+/** @type {{ role: string, content: string }[]} */
+let chatHistory = [];
+
+/** Max messages (user + assistant) kept for the next request; avoids huge payloads. */
+const MAX_CHAT_HISTORY_MESSAGES = 100;
+
 function openChatIfNeeded() {
   if (chatOpened) return;
   chatOpened = true;
@@ -86,6 +92,11 @@ function renderBasicMarkdown(s) {
   return html;
 }
 
+function trimChatHistory(messages) {
+  if (!Array.isArray(messages) || messages.length <= MAX_CHAT_HISTORY_MESSAGES) return messages;
+  return messages.slice(messages.length - MAX_CHAT_HISTORY_MESSAGES);
+}
+
 function formatAssistantResponse(payload, fallbackText) {
   if (payload && typeof payload === "object") {
     const parsedContent =
@@ -103,6 +114,19 @@ function formatTps(payload) {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
   if (!Number.isFinite(n) || n <= 0) return null;
   return `${n.toFixed(2)} tok/s`;
+}
+
+function formatTimeToFirstToken(payload) {
+  const v = payload?.time_to_first_token_seconds;
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n) || n < 0) return null;
+  return `${n.toFixed(4)}s to first token`;
+}
+
+function formatResponseMetrics(payload) {
+  if (!payload) return "";
+  const parts = [formatTimeToFirstToken(payload), formatTps(payload)].filter(Boolean);
+  return parts.length ? ` • ${parts.join(" • ")}` : "";
 }
 
 function addMessage({ role, content, meta, attachment, isPending = false }) {

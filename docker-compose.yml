@@ -7,4 +7,6 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
       API_BASE_URL: "${API_BASE_URL:-http://99.64.152.85:5000}"
+      # Startup log URL: override with PUBLIC_URL, or defaults from project .env HOST + PORT (published host:port, not container 3000)
+      PUBLIC_URL: "${PUBLIC_URL:-http://${HOST:-127.0.0.1}:${PORT:-3000}}"
 
