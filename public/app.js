@@ -372,14 +372,13 @@ async function send() {
 
       const finalPretty =
         donePayload?.parsed && typeof donePayload.parsed?.content === "string" ? donePayload.parsed.content : assistantText;
-      const tps = formatTps(donePayload);
+      const metrics = formatResponseMetrics(donePayload);
 
       if (pending?.body) {
         pending.body.innerHTML = renderBasicMarkdown(String(finalPretty || ""));
       }
       if (metaRight) {
-        const model = modelPath ? ` • ${modelPath}` : "";
-        metaRight.textContent = `${autoMode} • ${r.status}${tps ? ` • ${tps}` : ""}${model}`;
+        metaRight.textContent = `${autoMode} • ${r.status}${metrics}`;
       }
     } else {
       const form = new FormData();
@@ -445,12 +444,11 @@ async function send() {
 
       const finalPretty =
         donePayload?.parsed && typeof donePayload.parsed?.content === "string" ? donePayload.parsed.content : assistantText;
-      const tps = formatTps(donePayload);
+      const metrics = formatResponseMetrics(donePayload);
 
       if (pending?.body) pending.body.innerHTML = renderBasicMarkdown(String(finalPretty || ""));
       if (metaRight) {
-        const model = modelPath ? ` • ${modelPath}` : "";
-        metaRight.textContent = `${autoMode} • ${r.status}${tps ? ` • ${tps}` : ""}${model}`;
+        metaRight.textContent = `${autoMode} • ${r.status}${metrics}`;
       }
     }
   } catch (e) {
