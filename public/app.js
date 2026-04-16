@@ -10,6 +10,26 @@ const fileHintEl = el("fileHint");
 const sendBtnEl = el("sendBtn");
 
 let chatOpened = false;
+let autoScrollEnabled = true;
+
+function isNearBottom(container, thresholdPx = 80) {
+  if (!container) return true;
+  const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
+  return distance <= thresholdPx;
+}
+
+function maybeAutoScroll() {
+  if (!messagesEl) return;
+  if (!autoScrollEnabled) return;
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// If the user scrolls up, stop snapping to bottom during streaming.
+if (messagesEl) {
+  messagesEl.addEventListener("scroll", () => {
+    autoScrollEnabled = isNearBottom(messagesEl);
+  });
+}
 
 /** @type {{ role: string, content: string }[]} */
 let chatHistory = [];
@@ -193,7 +213,7 @@ function addMessage({ role, content, meta, attachment, isPending = false }) {
 
   wrapper.appendChild(body);
   messagesEl.appendChild(wrapper);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  maybeAutoScroll();
   return { wrapper, body };
 }
 
@@ -212,7 +232,7 @@ async function typeWordsInto(el, fullText) {
     const w = words[i];
     const extra = /[.!?]$/.test(w) ? 70 : /[,;:]$/.test(w) ? 35 : 0;
     await sleep(18 + extra);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    maybeAutoScroll();
   }
   el.innerHTML = renderBasicMarkdown(String(fullText || ""));
 }
@@ -359,7 +379,7 @@ async function send() {
             if (typeof t === "string") {
               assistantText += t;
               if (pending?.body) pending.body.textContent = assistantText;
-              messagesEl.scrollTop = messagesEl.scrollHeight;
+              maybeAutoScroll();
             }
             return;
           }
@@ -431,7 +451,7 @@ async function send() {
             if (typeof t === "string") {
               assistantText += t;
               if (pending?.body) pending.body.textContent = assistantText;
-              messagesEl.scrollTop = messagesEl.scrollHeight;
+              maybeAutoScroll();
             }
             return;
           }
