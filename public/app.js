@@ -37,33 +37,8 @@ let chatHistory = [];
 /** Max messages (user + assistant) kept for the next request; avoids huge payloads. */
 const MAX_CHAT_HISTORY_MESSAGES = 100;
 
-const CHAT_HISTORY_STORAGE_KEY = "gemma_demo_chat_history_v1";
-
-function loadChatHistory() {
-  try {
-    const raw = localStorage.getItem(CHAT_HISTORY_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (m) => m && typeof m === "object" && typeof m.role === "string" && typeof m.content === "string"
-    );
-  } catch {
-    return [];
-  }
-}
-
-function saveChatHistory(messages) {
-  try {
-    localStorage.setItem(CHAT_HISTORY_STORAGE_KEY, JSON.stringify(trimChatHistory(messages)));
-  } catch {
-    // ignore storage quota / private mode errors
-  }
-}
-
 function setChatHistory(next) {
   chatHistory = trimChatHistory(Array.isArray(next) ? next : []);
-  saveChatHistory(chatHistory);
 }
 
 function appendToChatHistory(message) {
@@ -152,14 +127,6 @@ function renderBasicMarkdown(s) {
 function trimChatHistory(messages) {
   if (!Array.isArray(messages) || messages.length <= MAX_CHAT_HISTORY_MESSAGES) return messages;
   return messages.slice(messages.length - MAX_CHAT_HISTORY_MESSAGES);
-}
-
-function restoreChatHistoryToUI() {
-  if (!Array.isArray(chatHistory) || chatHistory.length === 0) return;
-  openChatIfNeeded();
-  for (const m of chatHistory) {
-    addMessage({ role: m.role, content: m.content });
-  }
 }
 
 function formatAssistantResponse(payload, fallbackText) {
@@ -537,10 +504,6 @@ async function send() {
     sendBtnEl.disabled = false;
   }
 }
-
-// Load & restore conversation on refresh (best-effort)
-setChatHistory(loadChatHistory());
-restoreChatHistoryToUI();
 
 composerEl.addEventListener("submit", (e) => {
   e.preventDefault();
