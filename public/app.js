@@ -11,6 +11,12 @@ const sendBtnEl = el("sendBtn");
 
 let chatOpened = false;
 
+/** @type {{ role: string, content: string }[]} */
+let chatHistory = [];
+
+/** Max messages (user + assistant) kept for the next request; avoids huge payloads. */
+const MAX_CHAT_HISTORY_MESSAGES = 100;
+
 function openChatIfNeeded() {
   if (chatOpened) return;
   chatOpened = true;
@@ -86,6 +92,11 @@ function renderBasicMarkdown(s) {
   return html;
 }
 
+function trimChatHistory(messages) {
+  if (!Array.isArray(messages) || messages.length <= MAX_CHAT_HISTORY_MESSAGES) return messages;
+  return messages.slice(messages.length - MAX_CHAT_HISTORY_MESSAGES);
+}
+
 function formatAssistantResponse(payload, fallbackText) {
   if (payload && typeof payload === "object") {
     const parsedContent =
@@ -103,6 +114,19 @@ function formatTps(payload) {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
   if (!Number.isFinite(n) || n <= 0) return null;
   return `${n.toFixed(2)} tok/s`;
+}
+
+function formatTimeToFirstToken(payload) {
+  const v = payload?.time_to_first_token_seconds;
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n) || n < 0) return null;
+  return `${n.toFixed(4)}s to first token`;
+}
+
+function formatResponseMetrics(payload) {
+  if (!payload) return "";
+  const parts = [formatTimeToFirstToken(payload), formatTps(payload)].filter(Boolean);
+  return parts.length ? ` • ${parts.join(" • ")}` : "";
 }
 
 function addMessage({ role, content, meta, attachment, isPending = false }) {
@@ -258,18 +282,19 @@ async function send() {
   try {
     const form = new FormData();
     form.append("max_new_tokens", String(max_new_tokens));
-    form.append("text", text || "Describe this.");
-
     const endpoint = "/api/submit";
 
-    const parsedMessages = tryParseMessages(text);
-    if (parsedMessages) {
-      form.delete("text");
-      form.append("messages", JSON.stringify(parsedMessages));
-    }
-
     if (file) {
+      form.append("text", text || "Describe this.");
       form.append("file", file);
+    } else {
+      const parsedMessages = tryParseMessages(text);
+      if (parsedMessages) {
+        form.append("messages", JSON.stringify(parsedMessages));
+      } else {
+        const thread = trimChatHistory([...chatHistory, { role: "user", content: text }]);
+        form.append("messages", JSON.stringify(thread));
+      }
     }
 
     const r = await fetch(endpoint, { method: "POST", body: form });
@@ -284,15 +309,30 @@ async function send() {
     }
 
     const formatted = formatAssistantResponse(jsonPayload, out);
-    const tps = jsonPayload ? formatTps(jsonPayload) : null;
+    const metrics = formatResponseMetrics(jsonPayload);
+
+    if (r.ok && !file && typeof jsonPayload?.parsed?.content === "string") {
+      const replyText = jsonPayload.parsed.content;
+      const parsedMessages = tryParseMessages(text);
+      if (parsedMessages) {
+        chatHistory = trimChatHistory([...parsedMessages, { role: "assistant", content: replyText }]);
+      } else {
+        chatHistory = trimChatHistory([
+          ...chatHistory,
+          { role: "user", content: text },
+          { role: "assistant", content: replyText }
+        ]);
+      }
+    }
+
     // Replace pending bubble content with typed output
     if (pending?.body) {
       // update meta/status
       const metaRight = pending.wrapper?.querySelector(".msg__meta > div:last-child");
-      if (metaRight) metaRight.textContent = `${autoMode} • ${r.status}${tps ? ` • ${tps}` : ""}`;
+      if (metaRight) metaRight.textContent = `${autoMode} • ${r.status}${metrics}`;
       await typeWordsInto(pending.body, formatted.pretty);
     } else {
-      addMessage({ role: "assistant", content: formatted.pretty, meta: `${autoMode} • ${r.status}${tps ? ` • ${tps}` : ""}` });
+      addMessage({ role: "assistant", content: formatted.pretty, meta: `${autoMode} • ${r.status}${metrics}` });
     }
   } catch (e) {
     if (pending?.body) {

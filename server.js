@@ -10,6 +10,8 @@ const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const HOST = process.env.HOST || "127.0.0.1";
 const API_BASE_URL = (process.env.API_BASE_URL || "http://99.64.152.85:5000").replace(/\/$/, "");
+const PUBLIC_URL_RAW = typeof process.env.PUBLIC_URL === "string" ? process.env.PUBLIC_URL.trim() : "";
+const PUBLIC_URL = PUBLIC_URL_RAW.replace(/\/$/, "");
 
 // Store uploads in memory; we forward them immediately.
 const upload = multer({
@@ -195,7 +197,10 @@ app.get("/api/health", (req, res) => {
 });
 
 app.listen(PORT, HOST, () => {
+  const fallback =
+    HOST === "0.0.0.0" || HOST === "::" ? `http://127.0.0.1:${PORT}` : `http://${HOST}:${PORT}`;
+  const shown = PUBLIC_URL || fallback;
   // eslint-disable-next-line no-console
-  console.log(`Chatbox running on http://${HOST}:${PORT} (API_BASE_URL=${API_BASE_URL})`);
+  console.log(`Chatbox running on ${shown} (API_BASE_URL=${API_BASE_URL})`);
 });
 
