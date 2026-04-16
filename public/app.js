@@ -237,6 +237,32 @@ function tryParseMessages(text) {
   }
 }
 
+function parseSseChunk(state, chunkText, onEvent) {
+  // SSE frames are separated by blank line (\n\n). Each frame has lines like:
+  // event: token
+  // data: {"text":"..."}
+  state.buffer += chunkText;
+
+  let idx;
+  while ((idx = state.buffer.indexOf("\n\n")) !== -1) {
+    const rawFrame = state.buffer.slice(0, idx);
+    state.buffer = state.buffer.slice(idx + 2);
+
+    const lines = rawFrame.split(/\r?\n/);
+    let eventName = "message";
+    const dataLines = [];
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        eventName = line.slice("event:".length).trim() || "message";
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trimStart());
+      }
+    }
+    const dataStr = dataLines.join("\n");
+    onEvent({ event: eventName, data: dataStr });
+  }
+}
+
 async function send() {
   const text = (textEl.value || "").trim();
   const max_new_tokens = 512;
@@ -280,59 +306,152 @@ async function send() {
   const pending = addMessage({ role: "assistant", content: "", meta: `${autoMode} • …`, isPending: true });
 
   try {
-    const form = new FormData();
-    form.append("max_new_tokens", String(max_new_tokens));
-    const endpoint = "/api/submit";
-
-    if (file) {
-      form.append("text", text || "Describe this.");
-      form.append("file", file);
-    } else {
+    // Stream for chat and for uploads (image/video/audio).
+    if (!file) {
       const parsedMessages = tryParseMessages(text);
-      if (parsedMessages) {
-        form.append("messages", JSON.stringify(parsedMessages));
-      } else {
-        const thread = trimChatHistory([...chatHistory, { role: "user", content: text }]);
-        form.append("messages", JSON.stringify(thread));
-      }
-    }
+      const messages = parsedMessages || [{ role: "user", content: text || "" }];
 
-    const r = await fetch(endpoint, { method: "POST", body: form });
-    const ct = (r.headers.get("content-type") || "").toLowerCase();
-    let out;
-    let jsonPayload = null;
-    if (ct.includes("application/json")) {
-      jsonPayload = await r.json();
-      out = JSON.stringify(jsonPayload, null, 2);
-    } else {
-      out = await r.text();
-    }
+      const r = await fetch("/api/chat/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages, max_new_tokens })
+      });
 
-    const formatted = formatAssistantResponse(jsonPayload, out);
-    const metrics = formatResponseMetrics(jsonPayload);
-
-    if (r.ok && !file && typeof jsonPayload?.parsed?.content === "string") {
-      const replyText = jsonPayload.parsed.content;
-      const parsedMessages = tryParseMessages(text);
-      if (parsedMessages) {
-        chatHistory = trimChatHistory([...parsedMessages, { role: "assistant", content: replyText }]);
-      } else {
-        chatHistory = trimChatHistory([
-          ...chatHistory,
-          { role: "user", content: text },
-          { role: "assistant", content: replyText }
-        ]);
-      }
-    }
-
-    // Replace pending bubble content with typed output
-    if (pending?.body) {
-      // update meta/status
       const metaRight = pending.wrapper?.querySelector(".msg__meta > div:last-child");
-      if (metaRight) metaRight.textContent = `${autoMode} • ${r.status}${metrics}`;
-      await typeWordsInto(pending.body, formatted.pretty);
+      if (metaRight) metaRight.textContent = `${autoMode} • ${r.status} • streaming`;
+
+      if (!r.ok) {
+        const errText = await r.text();
+        throw new Error(errText || `HTTP ${r.status}`);
+      }
+
+      const reader = r.body?.getReader?.();
+      if (!reader) throw new Error("Streaming not supported by this browser.");
+
+      const decoder = new TextDecoder("utf-8");
+      const sseState = { buffer: "" };
+
+      let assistantText = "";
+      let donePayload = null;
+      let modelPath = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunkText = decoder.decode(value, { stream: true });
+
+        parseSseChunk(sseState, chunkText, ({ event, data }) => {
+          if (!data) return;
+          let payload = null;
+          try {
+            payload = JSON.parse(data);
+          } catch {
+            payload = null;
+          }
+
+          if (event === "meta") {
+            modelPath = payload?.model_path || modelPath;
+            return;
+          }
+
+          if (event === "token") {
+            const t = payload?.text;
+            if (typeof t === "string") {
+              assistantText += t;
+              if (pending?.body) pending.body.textContent = assistantText;
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
+            return;
+          }
+
+          if (event === "done") {
+            donePayload = payload;
+          }
+        });
+      }
+
+      const finalPretty =
+        donePayload?.parsed && typeof donePayload.parsed?.content === "string" ? donePayload.parsed.content : assistantText;
+      const tps = formatTps(donePayload);
+
+      if (pending?.body) {
+        pending.body.innerHTML = renderBasicMarkdown(String(finalPretty || ""));
+      }
+      if (metaRight) {
+        const model = modelPath ? ` • ${modelPath}` : "";
+        metaRight.textContent = `${autoMode} • ${r.status}${tps ? ` • ${tps}` : ""}${model}`;
+      }
     } else {
-      addMessage({ role: "assistant", content: formatted.pretty, meta: `${autoMode} • ${r.status}${metrics}` });
+      const form = new FormData();
+      form.append("max_new_tokens", String(max_new_tokens));
+      form.append("text", text || "Describe this.");
+
+      form.append("file", file);
+
+      const r = await fetch("/api/submit/stream", { method: "POST", body: form });
+
+      const metaRight = pending.wrapper?.querySelector(".msg__meta > div:last-child");
+      if (metaRight) metaRight.textContent = `${autoMode} • ${r.status} • streaming`;
+
+      if (!r.ok) {
+        const errText = await r.text();
+        throw new Error(errText || `HTTP ${r.status}`);
+      }
+
+      const reader = r.body?.getReader?.();
+      if (!reader) throw new Error("Streaming not supported by this browser.");
+
+      const decoder = new TextDecoder("utf-8");
+      const sseState = { buffer: "" };
+
+      let assistantText = "";
+      let donePayload = null;
+      let modelPath = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunkText = decoder.decode(value, { stream: true });
+
+        parseSseChunk(sseState, chunkText, ({ event, data }) => {
+          if (!data) return;
+          let payload = null;
+          try {
+            payload = JSON.parse(data);
+          } catch {
+            payload = null;
+          }
+
+          if (event === "meta") {
+            modelPath = payload?.model_path || modelPath;
+            return;
+          }
+
+          if (event === "token") {
+            const t = payload?.text;
+            if (typeof t === "string") {
+              assistantText += t;
+              if (pending?.body) pending.body.textContent = assistantText;
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
+            return;
+          }
+
+          if (event === "done") {
+            donePayload = payload;
+          }
+        });
+      }
+
+      const finalPretty =
+        donePayload?.parsed && typeof donePayload.parsed?.content === "string" ? donePayload.parsed.content : assistantText;
+      const tps = formatTps(donePayload);
+
+      if (pending?.body) pending.body.innerHTML = renderBasicMarkdown(String(finalPretty || ""));
+      if (metaRight) {
+        const model = modelPath ? ` • ${modelPath}` : "";
+        metaRight.textContent = `${autoMode} • ${r.status}${tps ? ` • ${tps}` : ""}${model}`;
+      }
     }
   } catch (e) {
     if (pending?.body) {

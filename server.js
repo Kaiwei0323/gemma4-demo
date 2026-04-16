@@ -61,9 +61,98 @@ async function forwardMultipart({ endpointPath, fields, fileFieldName, file }) {
   return resp;
 }
 
+async function forwardMultipartStream({ endpointPath, fields, fileFieldName, file }) {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === undefined || v === null) continue;
+    form.append(k, typeof v === "string" ? v : JSON.stringify(v));
+  }
+
+  if (file && fileFieldName) {
+    form.append(fileFieldName, file.buffer, {
+      filename: file.originalname || "upload",
+      contentType: file.mimetype || "application/octet-stream"
+    });
+  }
+
+  const url = `${API_BASE_URL}${endpointPath}`;
+  const resp = await axios.post(url, form, {
+    headers: form.getHeaders(),
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+    responseType: "stream",
+    validateStatus: () => true
+  });
+
+  return resp;
+}
+
 // Accept urlencoded + json for non-file chat
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: "2mb" }));
+
+app.post("/api/chat/stream", async (req, res) => {
+  // Proxy SSE stream from upstream /chat/stream to browser.
+  // Browser connects to same-origin to avoid CORS issues.
+  try {
+    const max_new_tokens = pickMaxNewTokens(req);
+    const messagesRaw = req.body?.messages;
+    const text = pickText(req);
+
+    // Upstream expects JSON body: { messages: [...], max_new_tokens }
+    // Keep compatibility with the UI: allow sending either "messages" or "text".
+    let messages = null;
+    if (Array.isArray(messagesRaw)) {
+      messages = messagesRaw;
+    } else if (typeof messagesRaw === "string" && messagesRaw.trim()) {
+      try {
+        const parsed = JSON.parse(messagesRaw);
+        if (Array.isArray(parsed)) messages = parsed;
+      } catch {
+        // ignore; fallback to text
+      }
+    }
+    if (!messages) {
+      messages = [{ role: "user", content: text || "" }];
+    }
+
+    const url = `${API_BASE_URL}/chat/stream`;
+    const upstream = await axios.post(
+      url,
+      { messages, max_new_tokens },
+      {
+        responseType: "stream",
+        headers: { "Content-Type": "application/json" },
+        validateStatus: () => true
+      }
+    );
+
+    // Pass-through status and SSE headers
+    res.status(upstream.status);
+    res.setHeader("Content-Type", upstream.headers["content-type"] || "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    // Helpful for nginx-like proxies; harmless otherwise
+    res.setHeader("X-Accel-Buffering", "no");
+
+    // If upstream returned an error JSON/text instead of SSE, forward it.
+    // Otherwise pipe the stream.
+    const ct = String(upstream.headers["content-type"] || "").toLowerCase();
+    if (!ct.includes("text/event-stream")) {
+      upstream.data.pipe(res);
+      return;
+    }
+
+    // Stop upstream if client disconnects.
+    req.on("close", () => {
+      if (upstream?.data?.destroy) upstream.data.destroy();
+    });
+
+    upstream.data.pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to call /chat/stream", details: String(err?.message || err) });
+  }
+});
 
 app.post("/api/chat", upload.none(), async (req, res) => {
   try {
@@ -89,6 +178,83 @@ app.post("/api/chat", upload.none(), async (req, res) => {
     res.status(upstream.status).type(upstream.headers["content-type"] || "application/json").send(upstream.data);
   } catch (err) {
     res.status(500).json({ error: "Failed to call /chat", details: String(err?.message || err) });
+  }
+});
+
+app.post("/api/submit/stream", upload.single("file"), async (req, res) => {
+  // Stream proxy for chat/image/video/audio depending on attachment.
+  try {
+    const text = pickText(req);
+    const max_new_tokens = pickMaxNewTokens(req);
+    const kind = req.file ? classifyUpload(req.file) : null;
+
+    if (!kind) {
+      // No file: stream chat
+      const messagesRaw = req.body?.messages;
+      const fields = { max_new_tokens };
+      if (messagesRaw) fields.messages = messagesRaw;
+      else fields.text = text;
+
+      // We already have a JSON-based chat stream endpoint; prefer it when possible.
+      // But keep multipart compatibility by translating to a JSON chat stream.
+      let messages = null;
+      if (fields.messages) {
+        const mr = fields.messages;
+        if (Array.isArray(mr)) messages = mr;
+        else if (typeof mr === "string" && mr.trim()) {
+          try {
+            const parsed = JSON.parse(mr);
+            if (Array.isArray(parsed)) messages = parsed;
+          } catch {
+            // ignore
+          }
+        }
+      }
+      if (!messages) messages = [{ role: "user", content: String(fields.text || "") }];
+
+      const upstream = await axios.post(
+        `${API_BASE_URL}/chat/stream`,
+        { messages, max_new_tokens },
+        { responseType: "stream", headers: { "Content-Type": "application/json" }, validateStatus: () => true }
+      );
+
+      res.status(upstream.status);
+      res.setHeader("Content-Type", upstream.headers["content-type"] || "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+
+      req.on("close", () => {
+        if (upstream?.data?.destroy) upstream.data.destroy();
+      });
+
+      upstream.data.pipe(res);
+      return;
+    }
+
+    const endpointPath = kind === "image" ? "/image/stream" : kind === "audio" ? "/audio/stream" : "/video/stream";
+    const fileFieldName = kind === "image" ? "image_file" : kind === "audio" ? "audio_url" : "video_url";
+
+    const upstream = await forwardMultipartStream({
+      endpointPath,
+      fields: { text: text || "Describe this.", max_new_tokens },
+      fileFieldName,
+      file: req.file
+    });
+
+    res.status(upstream.status);
+    res.setHeader("Content-Type", upstream.headers["content-type"] || "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    req.on("close", () => {
+      if (upstream?.data?.destroy) upstream.data.destroy();
+    });
+
+    upstream.data.pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to stream submit", details: String(err?.message || err) });
   }
 });
 
