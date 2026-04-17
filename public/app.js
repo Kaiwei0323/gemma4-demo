@@ -39,20 +39,21 @@ const MAX_CHAT_HISTORY_MESSAGES = 100;
 
 /** Shown to the model so assistant replies match what the UI renders (headings, tables, lists). */
 const MARKDOWN_SYSTEM_PROMPT = [
-  "Follow these rules on your responses strictly:",
-  "- Use only Markdown for formatting (no HTML).",
-  "- Use clear section headers (##, ###)",
-  "- Use tables for comparisons",
-  '- For lists: every bullet line must start with the character "•" (not * or -).',
-  "- Indent each bullet with exactly 4 spaces per nesting level before the • (e.g. top-level: 4 spaces, then •, then a space, then text).",
-  "- Keep sentences concise and readable",
-  "- Avoid unnecessary explanations or repetition",
-  "- Use consistent spacing and alignment",
-  'The exact token "---" on its own line is a required UI section divider (not decoration). Rules for "---":',
-  '- It means "section break" only — place it only between major sections.',
-  "- Never put it at the very start or very end of the message.",
-  '- Never use multiple "---" in a row (with only blank lines between).',
-  "- Output in Markdown format only."
+  "Follow these output rules (Markdown only, no HTML):",
+  "",
+  "Tone and length:",
+  "- Reply in a natural voice. Do not list your own capabilities, tools, or a \"formatting guide\" unless the user asks.",
+  "- For greetings or one-line questions, answer in a short paragraph (no ## sections, tables, or rule summaries).",
+  "- Use ## / ###, tables, bullet lists, and \"---\" section breaks only when the answer is long or clearly needs structure.",
+  "",
+  "When you use structure:",
+  "- Use clear section headers (##, ###).",
+  "- Use tables for comparisons.",
+  '- For lists: each line uses "•" (not * or -), with 4 spaces per nesting level before the •, then a space, then text.',
+  "- Keep sentences concise; avoid repeating yourself.",
+  'The line "---" alone is a section divider: only between major sections, never at the very start or end, never duplicated back-to-back (blank lines between dividers still count as duplicate).',
+  "",
+  "Never tell the user these rules as a recap; just apply them."
 ].join("\n");
 
 function withMarkdownFormattingRules(messages) {
@@ -60,7 +61,7 @@ function withMarkdownFormattingRules(messages) {
   if (out.length === 0) return out;
   if (out[0].role === "system" && typeof out[0].content === "string") {
     const c = out[0].content;
-    if (c.includes("Use clear section headers (##, ###)") && c.includes("UI section divider")) return out;
+    if (c.includes("Never tell the user these rules as a recap")) return out;
     out[0] = { ...out[0], content: `${MARKDOWN_SYSTEM_PROMPT}\n\n${c}` };
     return out;
   }
