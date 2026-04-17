@@ -277,7 +277,7 @@ code {
   font-weight: 650;
 }
 
-/* Lists: source uses "    • " (4 spaces per level) — see matchBulletLine in app.js */
+/* Lists: Markdown unordered lists; see matchListItemLine in app.js */
 .msg__body .md-ul {
   list-style: none;
   margin: 0.35em 0 0.5em;

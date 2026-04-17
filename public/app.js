@@ -37,35 +37,29 @@ let chatHistory = [];
 /** Max messages (user + assistant) kept for the next request; avoids huge payloads. */
 const MAX_CHAT_HISTORY_MESSAGES = 100;
 
-/** Shown to the model so assistant replies match what the UI renders (headings, tables, lists). */
-const MARKDOWN_SYSTEM_PROMPT = [
-  "Follow these output rules (Markdown only, no HTML):",
+/**
+ * Behavior only — no UI layout rules. How Markdown looks is decided in {@link renderBasicMarkdown}.
+ * Marker string avoids double-prepending when merging with an existing system message.
+ */
+const ASSISTANT_SYSTEM_MARKER = "[gemma4-demo-assistant-system]";
+const ASSISTANT_SYSTEM_PROMPT = [
+  "You are a helpful assistant.",
+  "Be concise and accurate. Use Markdown when it improves clarity.",
+  "Do not output raw HTML tags in your messages.",
   "",
-  "Tone and length:",
-  "- Reply in a natural voice. Do not list your own capabilities, tools, or a \"formatting guide\" unless the user asks.",
-  "- For greetings or one-line questions, answer in a short paragraph (no ## sections, tables, or rule summaries).",
-  "- Use ## / ###, tables, bullet lists, and \"---\" section breaks only when the answer is long or clearly needs structure.",
-  "",
-  "When you use structure:",
-  "- Use clear section headers (##, ###).",
-  "- Use tables for comparisons.",
-  '- For lists: each line uses "•" (not * or -), with 4 spaces per nesting level before the •, then a space, then text.',
-  "- Keep sentences concise; avoid repeating yourself.",
-  'The line "---" alone is a section divider: only between major sections, never at the very start or end, never duplicated back-to-back (blank lines between dividers still count as duplicate).',
-  "",
-  "Never tell the user these rules as a recap; just apply them."
+  ASSISTANT_SYSTEM_MARKER
 ].join("\n");
 
-function withMarkdownFormattingRules(messages) {
+function withAssistantSystemMessage(messages) {
   const out = Array.isArray(messages) ? [...messages] : [];
   if (out.length === 0) return out;
   if (out[0].role === "system" && typeof out[0].content === "string") {
     const c = out[0].content;
-    if (c.includes("Never tell the user these rules as a recap")) return out;
-    out[0] = { ...out[0], content: `${MARKDOWN_SYSTEM_PROMPT}\n\n${c}` };
+    if (c.includes(ASSISTANT_SYSTEM_MARKER)) return out;
+    out[0] = { ...out[0], content: `${ASSISTANT_SYSTEM_PROMPT}\n\n${c}` };
     return out;
   }
-  return [{ role: "system", content: MARKDOWN_SYSTEM_PROMPT }, ...out];
+  return [{ role: "system", content: ASSISTANT_SYSTEM_PROMPT }, ...out];
 }
 
 function setChatHistory(next) {
@@ -201,17 +195,20 @@ function trimSectionDividerBoundaries(lines) {
   return lines.slice(a, b);
 }
 
-/** Bullet lines: multiples of 4 spaces, then •, then space, then body. */
-function matchBulletLine(line) {
-  const m = line.match(/^((?: {4})+)•\s+(.*)$/);
+/**
+ * Unordered list line: optional indent (2 spaces per level), then - * + or bullet •, then content.
+ * Layout (bullets, nesting) is applied here — not via system prompt.
+ */
+function matchListItemLine(line) {
+  const m = line.match(/^(\s*)([-*+]|\u2022)\s+(.*)$/);
   if (!m) return null;
-  const depth = m[1].length / 4;
-  if (!Number.isInteger(depth) || depth < 1) return null;
-  return { depth, body: m[2] };
+  const spaces = m[1].length;
+  const depth = Math.max(1, Math.floor(spaces / 2) + 1);
+  return { depth, body: m[3] };
 }
 
 function renderBasicMarkdown(s) {
-  // **bold**, `code`, *italic*, ## / ### headers, GFM tables, • lists (4-space indent), --- section dividers.
+  // **bold**, `code`, *italic*, ## headers, GFM tables, --- hr, -/*/+ lists (frontend decides UI).
   // (No raw HTML; content is escaped first.)
   const escaped = escapeHtml(s);
   let lines = escaped.split(/\r?\n/);
@@ -286,15 +283,15 @@ function renderBasicMarkdown(s) {
       continue;
     }
 
-    const bullet = matchBulletLine(line);
-    if (bullet) {
+    const listItem = matchListItemLine(line);
+    if (listItem) {
       if (!inList) {
         html += '<ul class="md-ul">';
         inList = true;
       }
-      const d = bullet.depth;
+      const d = listItem.depth;
       const indentEm = (d - 1) * 1.25;
-      html += `<li class="md-li" style="margin-left:${indentEm}em">${renderInlineMarkdown(bullet.body)}</li>`;
+      html += `<li class="md-li" style="margin-left:${indentEm}em">${renderInlineMarkdown(listItem.body)}</li>`;
       i++;
       continue;
     }
@@ -553,7 +550,7 @@ async function send() {
         // Power-user mode: if they paste a full messages array, treat it as the conversation state.
         setChatHistory(parsedMessages);
       }
-      const messages = withMarkdownFormattingRules(trimChatHistory(parsedMessages || chatHistory));
+      const messages = withAssistantSystemMessage(trimChatHistory(parsedMessages || chatHistory));
 
       const r = await fetch("/api/chat/stream", {
         method: "POST",
@@ -627,13 +624,9 @@ async function send() {
 
       appendToChatHistory({ role: "assistant", content: String(finalPretty || "") });
     } else {
-      const userInstruction = text || "Describe this.";
-      // Image/video/audio APIs only receive `text` (no messages/system). Include the same rules as chat so output uses • lists, etc.
-      const textForApi = `${MARKDOWN_SYSTEM_PROMPT}\n\nUser message:\n${userInstruction}`;
-
       const form = new FormData();
       form.append("max_new_tokens", String(max_new_tokens));
-      form.append("text", textForApi);
+      form.append("text", text || "Describe this.");
 
       form.append("file", file);
 
