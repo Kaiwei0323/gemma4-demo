@@ -499,7 +499,7 @@ function parseSseChunk(state, chunkText, onEvent) {
 
 async function send() {
   const text = (textEl.value || "").trim();
-  const max_new_tokens = 512;
+  const max_new_tokens = 1024;
   const file = fileEl.files && fileEl.files[0] ? fileEl.files[0] : null;
 
   if (!text && !file) {

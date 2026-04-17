@@ -32,7 +32,7 @@ function pickText(req) {
 function pickMaxNewTokens(req) {
   const v = req.body?.max_new_tokens;
   const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN;
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 512;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1024;
 }
 
 async function forwardMultipart({ endpointPath, fields, fileFieldName, file }) {
