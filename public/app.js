@@ -627,9 +627,13 @@ async function send() {
 
       appendToChatHistory({ role: "assistant", content: String(finalPretty || "") });
     } else {
+      const userInstruction = text || "Describe this.";
+      // Image/video/audio APIs only receive `text` (no messages/system). Include the same rules as chat so output uses • lists, etc.
+      const textForApi = `${MARKDOWN_SYSTEM_PROMPT}\n\nUser message:\n${userInstruction}`;
+
       const form = new FormData();
       form.append("max_new_tokens", String(max_new_tokens));
-      form.append("text", text || "Describe this.");
+      form.append("text", textForApi);
 
       form.append("file", file);
 
