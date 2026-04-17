@@ -296,6 +296,26 @@ function renderBasicMarkdown(s) {
   return html;
 }
 
+/** Coalesces token bursts; always renders latest buffer with {@link renderBasicMarkdown}. */
+let assistantMarkdownRafId = 0;
+
+function scheduleAssistantMarkdownRender(bodyEl, getText) {
+  if (!bodyEl || typeof getText !== "function") return;
+  if (assistantMarkdownRafId) cancelAnimationFrame(assistantMarkdownRafId);
+  assistantMarkdownRafId = requestAnimationFrame(() => {
+    assistantMarkdownRafId = 0;
+    bodyEl.innerHTML = renderBasicMarkdown(String(getText() || ""));
+    maybeAutoScroll();
+  });
+}
+
+function cancelAssistantMarkdownRender() {
+  if (assistantMarkdownRafId) {
+    cancelAnimationFrame(assistantMarkdownRafId);
+    assistantMarkdownRafId = 0;
+  }
+}
+
 function trimChatHistory(messages) {
   if (!Array.isArray(messages) || messages.length <= MAX_CHAT_HISTORY_MESSAGES) return messages;
   return messages.slice(messages.length - MAX_CHAT_HISTORY_MESSAGES);
@@ -406,19 +426,17 @@ function sleep(ms) {
 }
 
 async function typeWordsInto(el, fullText) {
-  // Type as plain text for smoothness; then replace with formatted HTML at the end.
+  // Word-by-word plain text, then markdown (unused by main UI; kept for experiments).
   const words = String(fullText || "").split(/\s+/).filter(Boolean);
-  el.textContent = "";
+  let acc = "";
   for (let i = 0; i < words.length; i++) {
-    el.textContent += (i === 0 ? "" : " ") + words[i];
-    // speed curve: fast, but not instant
-    // small pauses for punctuation-like endings
+    acc += (i === 0 ? "" : " ") + words[i];
+    el.innerHTML = renderBasicMarkdown(acc);
     const w = words[i];
     const extra = /[.!?]$/.test(w) ? 70 : /[,;:]$/.test(w) ? 35 : 0;
     await sleep(18 + extra);
     maybeAutoScroll();
   }
-  el.innerHTML = renderBasicMarkdown(String(fullText || ""));
 }
 
 function classifyFile(file) {
@@ -571,8 +589,7 @@ async function send() {
             const t = payload?.text;
             if (typeof t === "string") {
               assistantText += t;
-              if (pending?.body) pending.body.textContent = assistantText;
-              maybeAutoScroll();
+              if (pending?.body) scheduleAssistantMarkdownRender(pending.body, () => assistantText);
             }
             return;
           }
@@ -587,6 +604,7 @@ async function send() {
         donePayload?.parsed && typeof donePayload.parsed?.content === "string" ? donePayload.parsed.content : assistantText;
       const metrics = formatResponseMetrics(donePayload);
 
+      cancelAssistantMarkdownRender();
       if (pending?.body) {
         pending.body.innerHTML = renderBasicMarkdown(String(finalPretty || ""));
       }
@@ -645,8 +663,7 @@ async function send() {
             const t = payload?.text;
             if (typeof t === "string") {
               assistantText += t;
-              if (pending?.body) pending.body.textContent = assistantText;
-              maybeAutoScroll();
+              if (pending?.body) scheduleAssistantMarkdownRender(pending.body, () => assistantText);
             }
             return;
           }
@@ -661,12 +678,14 @@ async function send() {
         donePayload?.parsed && typeof donePayload.parsed?.content === "string" ? donePayload.parsed.content : assistantText;
       const metrics = formatResponseMetrics(donePayload);
 
+      cancelAssistantMarkdownRender();
       if (pending?.body) pending.body.innerHTML = renderBasicMarkdown(String(finalPretty || ""));
       if (metaRight) {
         metaRight.textContent = `${autoMode} • ${r.status}${metrics}`;
       }
     }
   } catch (e) {
+    cancelAssistantMarkdownRender();
     if (pending?.body) {
       pending.body.textContent = `Error: ${String(e?.message || e)}`;
     } else {
