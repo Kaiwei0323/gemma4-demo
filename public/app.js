@@ -43,7 +43,8 @@ const MARKDOWN_SYSTEM_PROMPT = [
   "- Use only Markdown for formatting (no HTML).",
   "- Use clear section headers (##, ###)",
   "- Use tables for comparisons",
-  "- Use bullet points for lists",
+  '- For lists: every bullet line must start with the character "•" (not * or -).',
+  "- Indent each bullet with exactly 4 spaces per nesting level before the • (e.g. top-level: 4 spaces, then •, then a space, then text).",
   "- Keep sentences concise and readable",
   "- Avoid unnecessary explanations or repetition",
   "- Use consistent spacing and alignment",
@@ -199,8 +200,17 @@ function trimSectionDividerBoundaries(lines) {
   return lines.slice(a, b);
 }
 
+/** Bullet lines: multiples of 4 spaces, then •, then space, then body. */
+function matchBulletLine(line) {
+  const m = line.match(/^((?: {4})+)•\s+(.*)$/);
+  if (!m) return null;
+  const depth = m[1].length / 4;
+  if (!Number.isInteger(depth) || depth < 1) return null;
+  return { depth, body: m[2] };
+}
+
 function renderBasicMarkdown(s) {
-  // **bold**, `code`, *italic*, ## / ### headers, GFM tables, bullet lists, --- section dividers.
+  // **bold**, `code`, *italic*, ## / ### headers, GFM tables, • lists (4-space indent), --- section dividers.
   // (No raw HTML; content is escaped first.)
   const escaped = escapeHtml(s);
   let lines = escaped.split(/\r?\n/);
@@ -275,13 +285,15 @@ function renderBasicMarkdown(s) {
       continue;
     }
 
-    const m = line.match(/^\s*([*-])\s+(.*)$/);
-    if (m) {
+    const bullet = matchBulletLine(line);
+    if (bullet) {
       if (!inList) {
         html += '<ul class="md-ul">';
         inList = true;
       }
-      html += `<li>${renderInlineMarkdown(m[2])}</li>`;
+      const d = bullet.depth;
+      const indentEm = (d - 1) * 1.25;
+      html += `<li class="md-li" style="margin-left:${indentEm}em">${renderInlineMarkdown(bullet.body)}</li>`;
       i++;
       continue;
     }
