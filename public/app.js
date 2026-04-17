@@ -37,6 +37,35 @@ let chatHistory = [];
 /** Max messages (user + assistant) kept for the next request; avoids huge payloads. */
 const MAX_CHAT_HISTORY_MESSAGES = 100;
 
+/** Shown to the model so assistant replies match what the UI renders (headings, tables, lists). */
+const MARKDOWN_SYSTEM_PROMPT = [
+  "Follow these rules on your responses strictly:",
+  "- Use only Markdown for formatting (no HTML).",
+  "- Use clear section headers (##, ###)",
+  "- Use tables for comparisons",
+  "- Use bullet points for lists",
+  "- Keep sentences concise and readable",
+  "- Avoid unnecessary explanations or repetition",
+  "- Use consistent spacing and alignment",
+  'The exact token "---" on its own line is a required UI section divider (not decoration). Rules for "---":',
+  '- It means "section break" only — place it only between major sections.',
+  "- Never put it at the very start or very end of the message.",
+  '- Never use multiple "---" in a row (with only blank lines between).',
+  "- Output in Markdown format only."
+].join("\n");
+
+function withMarkdownFormattingRules(messages) {
+  const out = Array.isArray(messages) ? [...messages] : [];
+  if (out.length === 0) return out;
+  if (out[0].role === "system" && typeof out[0].content === "string") {
+    const c = out[0].content;
+    if (c.includes("Use clear section headers (##, ###)") && c.includes("UI section divider")) return out;
+    out[0] = { ...out[0], content: `${MARKDOWN_SYSTEM_PROMPT}\n\n${c}` };
+    return out;
+  }
+  return [{ role: "system", content: MARKDOWN_SYSTEM_PROMPT }, ...out];
+}
+
 function setChatHistory(next) {
   chatHistory = trimChatHistory(Array.isArray(next) ? next : []);
 }
@@ -88,14 +117,97 @@ function renderInlineMarkdown(escapedText) {
   return out;
 }
 
-function renderBasicMarkdown(s) {
-  // Minimal rendering: **bold**, newlines, and simple bullet lists.
-  // (No links/html; everything is escaped first.)
-  const escaped = escapeHtml(s);
+function splitTableRow(line) {
+  const t = line.trim();
+  if (!t.includes("|")) return null;
+  const core = t.replace(/^\|/, "").replace(/\|$/, "");
+  return core.split("|").map((c) => c.trim());
+}
 
-  const lines = escaped.split(/\r?\n/);
+function isTableSeparatorCell(cell) {
+  const t = cell.trim();
+  return /^:?-{3,}:?$/.test(t);
+}
+
+/**
+ * If lines[i] starts a GFM-style table (header + separator), returns { html, nextIndex }.
+ */
+function tryParseTable(lines, i) {
+  if (i + 1 >= lines.length) return null;
+  const headerCells = splitTableRow(lines[i]);
+  const sepCells = splitTableRow(lines[i + 1]);
+  if (!headerCells || headerCells.length < 2 || !sepCells || sepCells.length !== headerCells.length) return null;
+  if (!sepCells.every(isTableSeparatorCell)) return null;
+
+  let html =
+    '<table class="md-table"><thead><tr>' +
+    headerCells.map((c) => `<th>${renderInlineMarkdown(c)}</th>`).join("") +
+    "</tr></thead><tbody>";
+
+  let j = i + 2;
+  while (j < lines.length) {
+    const rowLine = lines[j];
+    if (rowLine.trim() === "") break;
+    const cells = splitTableRow(rowLine);
+    if (!cells || cells.length !== headerCells.length) break;
+    html += "<tr>" + cells.map((c) => `<td>${renderInlineMarkdown(c)}</td>`).join("") + "</tr>";
+    j++;
+  }
+
+  html += "</tbody></table>";
+  return { html, nextIndex: j };
+}
+
+function headingTagForDepth(depth) {
+  const d = Math.min(Math.max(depth, 1), 6);
+  return `h${d}`;
+}
+
+/** Standalone thematic break line (not a table row — no `|`). */
+function isSectionDividerLine(trimmed) {
+  return /^\s*-{3,}\s*$/.test(trimmed) && !trimmed.includes("|");
+}
+
+/** Drop leading/trailing `---` lines so dividers never render at start/end. */
+function trimSectionDividerBoundaries(lines) {
+  let a = 0;
+  let b = lines.length;
+  while (a < b) {
+    const t = lines[a].trim();
+    if (t === "") {
+      a++;
+      continue;
+    }
+    if (isSectionDividerLine(t)) {
+      a++;
+      continue;
+    }
+    break;
+  }
+  while (b > a) {
+    const t = lines[b - 1].trim();
+    if (t === "") {
+      b--;
+      continue;
+    }
+    if (isSectionDividerLine(t)) {
+      b--;
+      continue;
+    }
+    break;
+  }
+  return lines.slice(a, b);
+}
+
+function renderBasicMarkdown(s) {
+  // **bold**, `code`, *italic*, ## / ### headers, GFM tables, bullet lists, --- section dividers.
+  // (No raw HTML; content is escaped first.)
+  const escaped = escapeHtml(s);
+  let lines = escaped.split(/\r?\n/);
+  lines = trimSectionDividerBoundaries(lines);
   let html = "";
   let inList = false;
+  let lastOutputWasDivider = false;
 
   const flushListClose = () => {
     if (inList) {
@@ -104,22 +216,82 @@ function renderBasicMarkdown(s) {
     }
   };
 
-  for (const line of lines) {
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed === "") {
+      flushListClose();
+      if (lastOutputWasDivider) {
+        i++;
+        continue;
+      }
+      html += "<br/>";
+      i++;
+      continue;
+    }
+
+    if (isSectionDividerLine(trimmed)) {
+      flushListClose();
+      let k = i + 1;
+      while (k < lines.length) {
+        const t2 = lines[k].trim();
+        if (t2 === "") {
+          k++;
+          continue;
+        }
+        if (isSectionDividerLine(t2)) {
+          k++;
+          continue;
+        }
+        break;
+      }
+      if (!lastOutputWasDivider) {
+        html += '<hr class="md-divider" />';
+        lastOutputWasDivider = true;
+      }
+      i = k;
+      continue;
+    }
+
+    lastOutputWasDivider = false;
+
+    const tableBlock = tryParseTable(lines, i);
+    if (tableBlock) {
+      flushListClose();
+      html += tableBlock.html;
+      i = tableBlock.nextIndex;
+      continue;
+    }
+
+    const hm = line.match(/^(#{1,6})\s+(.*)$/);
+    if (hm) {
+      flushListClose();
+      const depth = hm[1].length;
+      const tag = headingTagForDepth(depth);
+      html += `<${tag} class="md-heading md-heading--h${depth}">${renderInlineMarkdown(hm[2])}</${tag}>`;
+      i++;
+      continue;
+    }
+
     const m = line.match(/^\s*([*-])\s+(.*)$/);
     if (m) {
       if (!inList) {
-        html += "<ul>";
+        html += '<ul class="md-ul">';
         inList = true;
       }
       html += `<li>${renderInlineMarkdown(m[2])}</li>`;
-    } else {
-      flushListClose();
-      html += `${renderInlineMarkdown(line)}<br/>`;
+      i++;
+      continue;
     }
+
+    flushListClose();
+    html += `${renderInlineMarkdown(line)}<br/>`;
+    i++;
   }
   flushListClose();
 
-  // Trim a final <br/> if present
   html = html.replace(/(<br\/>)+$/, "");
   return html;
 }
@@ -350,7 +522,7 @@ async function send() {
         // Power-user mode: if they paste a full messages array, treat it as the conversation state.
         setChatHistory(parsedMessages);
       }
-      const messages = trimChatHistory(parsedMessages || chatHistory);
+      const messages = withMarkdownFormattingRules(trimChatHistory(parsedMessages || chatHistory));
 
       const r = await fetch("/api/chat/stream", {
         method: "POST",
