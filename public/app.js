@@ -29,6 +29,61 @@ if (messagesEl) {
   messagesEl.addEventListener("scroll", () => {
     autoScrollEnabled = isNearBottom(messagesEl);
   });
+
+  messagesEl.addEventListener("click", (e) => {
+    const btn = e.target.closest(".md-code-copy");
+    if (!btn || !messagesEl.contains(btn)) return;
+    e.preventDefault();
+    const wrap = btn.closest(".md-code-wrap");
+    const codeEl = wrap?.querySelector("pre.md-pre code");
+    if (!codeEl) return;
+    const text = codeEl.textContent ?? "";
+    const done = () => {
+      btn.classList.add("md-code-copy--done");
+      btn.setAttribute("aria-label", "Copied");
+      const prev = btn.getAttribute("data-prev-title");
+      if (prev == null) btn.setAttribute("data-prev-title", btn.title || "");
+      btn.title = "Copied";
+      window.clearTimeout(btn._copyResetT);
+      btn._copyResetT = window.setTimeout(() => {
+        btn.classList.remove("md-code-copy--done");
+        btn.setAttribute("aria-label", "Copy code");
+        const t = btn.getAttribute("data-prev-title");
+        if (t != null) btn.title = t;
+      }, 1600);
+    };
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(text).then(done).catch(() => {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          done();
+        } catch {
+          /* ignore */
+        }
+      });
+    } else {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        done();
+      } catch {
+        /* ignore */
+      }
+    }
+  });
 }
 
 /** @type {{ role: string, content: string }[]} */
@@ -103,13 +158,80 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
+/** http(s), mailto, relative paths, data:image/* for img; blocks javascript: and dangerous data: */
+function isSafeUrlForMarkdown(href, { forImage = false } = {}) {
+  const h = String(href || "").trim();
+  if (!h) return false;
+  const low = h.slice(0, 32).toLowerCase();
+  if (low.startsWith("javascript:") || low.startsWith("vbscript:")) return false;
+  if (forImage) {
+    if (low.startsWith("data:") && !low.startsWith("data:image/")) return false;
+  } else if (low.startsWith("data:")) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Inline `$...$` with KaTeX; skips `<code>...</code>` spans so `$` in code is literal.
+ */
+function renderInlineMathInHtml(html) {
+  const stash = [];
+  let masked = html.replace(/<code>[\s\S]*?<\/code>/gi, (m) => {
+    stash.push(m);
+    return `«MDCODE${stash.length - 1}»`;
+  });
+
+  masked = masked.replace(/\$([^$\n]+?)\$/g, (full, tex) => {
+    const trimmed = String(tex).trim();
+    if (!trimmed) return full;
+    if (typeof katex !== "undefined" && typeof katex.renderToString === "function") {
+      try {
+        const inner = katex.renderToString(trimmed, {
+          displayMode: false,
+          throwOnError: false,
+          strict: "warn"
+        });
+        return `<span class="md-math">${inner}</span>`;
+      } catch {
+        return `<span class="md-math md-math--plain">${escapeHtml(trimmed)}</span>`;
+      }
+    }
+    return `<span class="md-math md-math--plain">${escapeHtml(trimmed)}</span>`;
+  });
+
+  stash.forEach((chunk, idx) => {
+    masked = masked.replace(`«MDCODE${idx}»`, chunk);
+  });
+  return masked;
+}
+
 function renderInlineMarkdown(escapedText) {
-  // `code`
+  // `code` — first so other rules do not touch code contents
   let out = escapedText.replace(/`([^`]+?)`/g, "<code>$1</code>");
-  // **bold**
+  // ~~strikethrough~~ (before bold/italic so patterns can nest sensibly)
+  out = out.replace(/~~(.+?)~~/g, "<del>$1</del>");
+  // **bold** and __bold__
   out = out.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  // *italic* (avoid matching list markers; list parsing runs before this)
+  out = out.replace(/__(.+?)__/g, "<strong>$1</strong>");
+  // *italic* (before images so list-like * is not confused here — list lines never reach this whole-line path)
   out = out.replace(/\*([^*\n]+?)\*/g, "<em>$1</em>");
+  // ![alt](url) and [label](url) before _italic_ so alts like ![x_y](u) or ![_alt_](u) stay intact
+  out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (full, alt, href) => {
+    if (!isSafeUrlForMarkdown(href, { forImage: true })) return full;
+    const safeHref = escapeHtml(String(href).trim());
+    return `<img class="md-img" src="${safeHref}" alt="${alt}" loading="lazy" decoding="async" />`;
+  });
+  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (full, label, href) => {
+    if (!isSafeUrlForMarkdown(href)) return full;
+    const safeHref = escapeHtml(String(href).trim());
+    const ext = /^https?:\/\//i.test(String(href).trim());
+    const rel = ext ? ' target="_blank" rel="noopener noreferrer"' : "";
+    return `<a href="${safeHref}" class="md-link"${rel}>${label}</a>`;
+  });
+  // _italic_ last among emphasis (underscores common in URLs/alts)
+  out = out.replace(/_([^_\n]+?)_/g, "<em>$1</em>");
+  out = renderInlineMathInHtml(out);
   return out;
 }
 
@@ -137,7 +259,7 @@ function tryParseTable(lines, i) {
 
   let html =
     '<table class="md-table"><thead><tr>' +
-    headerCells.map((c) => `<th>${renderInlineMarkdown(c)}</th>`).join("") +
+    headerCells.map((c) => `<th>${renderInlineMarkdown(escapeHtml(c))}</th>`).join("") +
     "</tr></thead><tbody>";
 
   let j = i + 2;
@@ -146,7 +268,7 @@ function tryParseTable(lines, i) {
     if (rowLine.trim() === "") break;
     const cells = splitTableRow(rowLine);
     if (!cells || cells.length !== headerCells.length) break;
-    html += "<tr>" + cells.map((c) => `<td>${renderInlineMarkdown(c)}</td>`).join("") + "</tr>";
+    html += "<tr>" + cells.map((c) => `<td>${renderInlineMarkdown(escapeHtml(c))}</td>`).join("") + "</tr>";
     j++;
   }
 
@@ -159,9 +281,10 @@ function headingTagForDepth(depth) {
   return `h${d}`;
 }
 
-/** Standalone thematic break line (not a table row — no `|`). */
+/** Standalone thematic break: ---, ***, or ___ (GFM; not a table row — no `|`). */
 function isSectionDividerLine(trimmed) {
-  return /^\s*-{3,}\s*$/.test(trimmed) && !trimmed.includes("|");
+  if (trimmed.includes("|")) return false;
+  return /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(trimmed);
 }
 
 /** Drop leading/trailing `---` lines so dividers never render at start/end. */
@@ -208,11 +331,9 @@ function matchListItemLine(line) {
 }
 
 function renderBasicMarkdown(s) {
-  // **bold**, `code`, *italic*, ## headers, GFM tables, --- hr, -/*/+ lists (frontend decides UI).
-  // (No raw HTML; content is escaped first.)
-  const escaped = escapeHtml(s);
-  let lines = escaped.split(/\r?\n/);
-  lines = trimSectionDividerBoundaries(lines);
+  // **bold**, `code`, *italic*, links/images, ## headers, GFM tables, hr (---/***/___), fenced ``` code,
+  // blockquotes (>), -/*/+ lists. Structure is parsed from raw lines; text segments are escaped then inlined.
+  let lines = trimSectionDividerBoundaries(String(s).split(/\r?\n/));
   let html = "";
   let inList = false;
   let lastOutputWasDivider = false;
@@ -265,6 +386,32 @@ function renderBasicMarkdown(s) {
 
     lastOutputWasDivider = false;
 
+    // Fenced code block: ``` or ```lang
+    const fenceOpen = trimmed.match(/^```([\w-]*)\s*$/);
+    if (fenceOpen) {
+      flushListClose();
+      const lang = fenceOpen[1] || "";
+      const bodyLines = [];
+      let fenceClosed = false;
+      i++;
+      while (i < lines.length) {
+        if (/^```\s*$/.test(lines[i].trim())) {
+          i++;
+          fenceClosed = true;
+          break;
+        }
+        bodyLines.push(lines[i]);
+        i++;
+      }
+      const code = bodyLines.join("\n");
+      const langClass = lang ? ` language-${lang}` : "";
+      const copyBtnAttrs = fenceClosed
+        ? `type="button" class="md-code-copy" title="Copy code" aria-label="Copy code"`
+        : `type="button" class="md-code-copy" disabled title="Wait until the code block finishes" aria-label="Copy unavailable until the code block is complete"`;
+      html += `<div class="md-code-wrap"><button ${copyBtnAttrs}><svg class="md-code-copy__icon md-code-copy__icon--copy" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg><svg class="md-code-copy__icon md-code-copy__icon--check" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19l12-12-1.41-1.41z"/></svg></button><pre class="md-pre"><code class="md-codeblock${langClass}">${escapeHtml(code)}</code></pre></div>`;
+      continue;
+    }
+
     const tableBlock = tryParseTable(lines, i);
     if (tableBlock) {
       flushListClose();
@@ -278,8 +425,23 @@ function renderBasicMarkdown(s) {
       flushListClose();
       const depth = hm[1].length;
       const tag = headingTagForDepth(depth);
-      html += `<${tag} class="md-heading md-heading--h${depth}">${renderInlineMarkdown(hm[2])}</${tag}>`;
+      html += `<${tag} class="md-heading md-heading--h${depth}">${renderInlineMarkdown(escapeHtml(hm[2]))}</${tag}>`;
       i++;
+      continue;
+    }
+
+    const bqMatch = line.match(/^\s*>\s?(.*)$/);
+    if (bqMatch) {
+      flushListClose();
+      const parts = [];
+      while (i < lines.length) {
+        const m = lines[i].match(/^\s*>\s?(.*)$/);
+        if (!m) break;
+        parts.push(m[1]);
+        i++;
+      }
+      const inner = parts.map((p) => renderInlineMarkdown(escapeHtml(p))).join("<br/>");
+      html += `<blockquote class="md-blockquote">${inner}</blockquote>`;
       continue;
     }
 
@@ -291,13 +453,13 @@ function renderBasicMarkdown(s) {
       }
       const d = listItem.depth;
       const indentEm = (d - 1) * 1.25;
-      html += `<li class="md-li" style="margin-left:${indentEm}em">${renderInlineMarkdown(listItem.body)}</li>`;
+      html += `<li class="md-li" style="margin-left:${indentEm}em">${renderInlineMarkdown(escapeHtml(listItem.body))}</li>`;
       i++;
       continue;
     }
 
     flushListClose();
-    html += `${renderInlineMarkdown(line)}<br/>`;
+    html += `${renderInlineMarkdown(escapeHtml(line))}<br/>`;
     i++;
   }
   flushListClose();

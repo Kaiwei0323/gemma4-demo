@@ -246,7 +246,7 @@ code {
   white-space: normal;
 }
 
-/* Assistant Markdown: headings, tables, lists (see renderBasicMarkdown in app.js) */
+/* Assistant Markdown: headings, tables, lists, links, code fences, blockquotes (see app.js) */
 .msg__body .md-heading {
   margin: 0.85em 0 0.45em;
   line-height: 1.25;
@@ -327,13 +327,148 @@ code {
   background: rgba(0, 0, 0, 0.08);
 }
 
-/* Required section break token: standalone "---" line in Markdown */
+/* Thematic break: standalone ---, ***, or ___ line */
 .msg__body .md-divider {
   display: block;
   border: 0;
   height: 1px;
   margin: 1em 0;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+}
+
+.msg__body .md-link {
+  color: rgba(120, 200, 255, 0.98);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.msg__body .md-link:hover {
+  color: rgba(170, 220, 255, 1);
+}
+
+.msg__body .md-img {
+  display: block;
+  max-width: min(100%, 520px);
+  height: auto;
+  margin: 0.5em 0;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.msg__body .md-blockquote {
+  margin: 0.5em 0;
+  padding: 0.5em 0 0.5em 1em;
+  border-left: 3px solid rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 0 10px 10px 0;
+}
+
+.msg__body .md-code-wrap {
+  position: relative;
+  margin: 0.5em 0;
+}
+
+.msg__body .md-code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.msg__body .md-code-copy:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+
+.msg__body .md-code-copy:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.msg__body .md-code-copy:focus-visible:not(:disabled) {
+  outline: 2px solid rgba(120, 200, 255, 0.85);
+  outline-offset: 2px;
+}
+
+.msg__body .md-code-copy__icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.msg__body .md-code-copy__icon--check {
+  display: none;
+}
+
+.msg__body .md-code-copy--done .md-code-copy__icon--copy {
+  display: none;
+}
+
+.msg__body .md-code-copy--done .md-code-copy__icon--check {
+  display: block;
+}
+
+.msg__body .md-code-copy--done {
+  border-color: rgba(120, 220, 160, 0.45);
+  color: rgba(160, 240, 190, 0.98);
+  background: rgba(40, 90, 60, 0.35);
+}
+
+.msg__body .md-pre {
+  margin: 0;
+  /* Top aligns with first code line; extra right padding reserves space for the overlay copy button */
+  padding: 0.75em 2.75rem 0.75em 0.75em;
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.msg__body .md-pre .md-codeblock {
+  display: block;
+  padding: 0;
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre;
+  background: transparent;
+  border: 0;
+}
+
+.msg__body del {
+  text-decoration: line-through;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.msg__body .md-math {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.msg__body .md-math .katex {
+  color: inherit;
+  font-size: 1.05em;
+}
+
+.msg__body .md-math--plain {
+  font-family: var(--mono);
+  font-size: 0.92em;
 }
 
 .msg__attachment {
