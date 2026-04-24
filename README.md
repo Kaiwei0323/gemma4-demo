@@ -32,8 +32,9 @@ Create a database (example name: `gemma4_demo`) and run the schema:
 psql -U postgres -h 127.0.0.1 -c "create database gemma4_demo;"
 psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/001_auth.sql
 psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/002_chat_history.sql
-psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/003_chat_message_attachments.sql
-psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/004_chat_thread_title.sql
+psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/003_chat_history.sql
+psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/004_chat_message_attachments.sql
+psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/005_chat_thread_title.sql
 ```
 
 ### 3) Configure `.env`
@@ -94,21 +95,35 @@ Open `http://localhost:3000`.
 docker compose up --build
 ```
 
-### Create the database schema (Docker Compose)
+### Database schema (Docker Compose)
 
-If you see errors like `relation "users" does not exist`, run the SQL migrations into the `db` container:
+On every **`inventec-ai-studio` container start**, `docker-entrypoint.sh` waits until Postgres accepts connections, then applies these files in order (they are written to be **idempotent**):
+
+`sql/001_auth.sql` → `002_chat_history.sql` → `003_chat_history.sql` → `004_chat_message_attachments.sql` → `005_chat_thread_title.sql`
+
+To skip that step (for example if you manage schema yourself), set `SKIP_DB_MIGRATE=1` on the app service.
+
+**Manual apply** (optional, same order as the container):
 
 ```bash
-docker compose exec -T db psql -U postgres -d "${POSTGRES_DB:-gemma4_database}" < sql/001_auth.sql
-docker compose exec -T db psql -U postgres -d "${POSTGRES_DB:-gemma4_database}" < sql/002_chat_history.sql
-docker compose exec -T db psql -U postgres -d "${POSTGRES_DB:-gemma4_database}" < sql/003_chat_message_attachments.sql
-docker compose exec -T db psql -U postgres -d "${POSTGRES_DB:-gemma4_database}" < sql/004_chat_thread_title.sql
+docker compose exec -T db psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-gemma4_database}" < sql/001_auth.sql
+docker compose exec -T db psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-gemma4_database}" < sql/002_chat_history.sql
+docker compose exec -T db psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-gemma4_database}" < sql/003_chat_history.sql
+docker compose exec -T db psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-gemma4_database}" < sql/004_chat_message_attachments.sql
+docker compose exec -T db psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-gemma4_database}" < sql/005_chat_thread_title.sql
 ```
 
 ### Persistence in Docker
 
 - **Uploads** (saved to `uploads/` and served from `/uploads/...`) persist because Compose mounts `./uploads:/app/uploads`.
 - **Postgres data** persists because Compose uses a named volume `pgdata`.
+
+**Postgres password errors** (`password authentication failed for user "postgres"`): the app’s `DATABASE_URL` is built from `POSTGRES_USER` / `POSTGRES_PASSWORD` in your project `.env`. The `db` container only applies `POSTGRES_PASSWORD` on **first database init**. If you change the password later, the old password stays in `pgdata` until you either set `POSTGRES_PASSWORD` back to the original value or **reset the volume** (this deletes all DB data):
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
 
 If you want to connect with `psql` from your host:
 
@@ -121,8 +136,9 @@ Then run the schema files inside the repo (from your host):
 ```bash
 psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/001_auth.sql
 psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/002_chat_history.sql
-psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/003_chat_message_attachments.sql
-psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/004_chat_thread_title.sql
+psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/003_chat_history.sql
+psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/004_chat_message_attachments.sql
+psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/005_chat_thread_title.sql
 ```
 
 ## What it sends upstream

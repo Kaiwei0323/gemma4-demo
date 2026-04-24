@@ -84,16 +84,35 @@ function resetChatToLanding() {
   }
 }
 
+function randomUuidV4() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const b = new Uint8Array(16);
+    crypto.getRandomValues(b);
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = (n) => n.toString(16).padStart(2, "0");
+    return `${h(b[0])}${h(b[1])}${h(b[2])}${h(b[3])}-${h(b[4])}${h(b[5])}-${h(b[6])}${h(b[7])}-${h(b[8])}${h(b[9])}-${h(b[10])}${h(b[11])}${h(b[12])}${h(b[13])}${h(b[14])}${h(b[15])}`;
+  }
+  throw new Error("This browser cannot generate a UUID (crypto API missing).");
+}
+
+function isUuidString(s) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || "").trim());
+}
+
 function getOrCreateChatId() {
   try {
     const k = "gemma4-demo.chat_id";
     const existing = localStorage.getItem(k);
-    if (existing && typeof existing === "string" && existing.trim()) return existing.trim();
-    const id = crypto?.randomUUID ? crypto.randomUUID() : String(Date.now());
+    const trimmed = typeof existing === "string" ? existing.trim() : "";
+    if (trimmed && isUuidString(trimmed)) return trimmed;
+    if (trimmed) localStorage.removeItem(k);
+    const id = randomUuidV4();
     localStorage.setItem(k, id);
     return id;
   } catch {
-    return crypto?.randomUUID ? crypto.randomUUID() : String(Date.now());
+    return randomUuidV4();
   }
 }
 
@@ -250,7 +269,7 @@ async function refreshSessionsList(activeChatId) {
         if (!ok) return;
         try {
           await apiDeleteJson(`/api/history/chats/${encodeURIComponent(id)}`);
-          // If deleting active chat, clear it so ensureLoggedIn() will create a new one.
+          // If deleting active chat, clear it; the next send will create a new thread when the user chats again.
           const currentId = (() => {
             try {
               return localStorage.getItem("gemma4-demo.chat_id");
@@ -262,7 +281,7 @@ async function refreshSessionsList(activeChatId) {
             clearChatId();
             clearMessagesUi();
           }
-          await ensureLoggedIn({ forceNewChat: !localStorage.getItem("gemma4-demo.chat_id") });
+          await refreshSessionsList(null);
         } catch (err) {
           setAuthHint(String(err?.message || err));
         }
@@ -306,6 +325,9 @@ function showAuthGate(show) {
   } else {
     authGateEl.classList.remove("authgate--show");
     authGateEl.setAttribute("aria-hidden", "true");
+    // Do not leave credentials in the DOM when the panel closes (browser may still autofill from its vault).
+    if (authUserEl) authUserEl.value = "";
+    if (authPassEl) authPassEl.value = "";
   }
 }
 
@@ -349,7 +371,7 @@ async function authJson(url, body) {
   return data;
 }
 
-async function ensureLoggedIn({ forceNewChat = false } = {}) {
+async function ensureLoggedIn() {
   try {
     const r = await fetch("/api/auth/me");
     const data = await r.json().catch(() => null);
@@ -360,34 +382,14 @@ async function ensureLoggedIn({ forceNewChat = false } = {}) {
       if (logoutBtnEl) logoutBtnEl.style.display = "";
       setSessionsVisible(true);
 
-      // After login, always start with a fresh DB chat session when requested.
       let activeId = null;
       try {
         activeId = localStorage.getItem("gemma4-demo.chat_id");
       } catch {
         activeId = null;
       }
-      if (forceNewChat) {
-        activeId = null;
-        try {
-          localStorage.removeItem("gemma4-demo.chat_id");
-        } catch {
-          // ignore
-        }
-      }
-      if (!activeId) {
-        if (sendBtnEl) sendBtnEl.disabled = true;
-        const created = await apiPostJson("/api/history/chats", {});
-        activeId = created?.chat?.id || null;
-        if (activeId) {
-          try {
-            localStorage.setItem("gemma4-demo.chat_id", activeId);
-          } catch {
-            // ignore
-          }
-        }
-        if (sendBtnEl) sendBtnEl.disabled = false;
-      }
+      // Do not POST /api/history/chats here: a DB thread is created on first real send
+      // (server ensureChatThread) or when the user clicks "New chat".
       await refreshSessionsList(activeId);
       if (activeId) setActiveSessionUi(activeId);
       return true;
@@ -1206,6 +1208,20 @@ async function send() {
         metaRight.textContent = `${autoMode} • ${r.status}${metrics}`;
       }
     }
+
+    if (isAuthed) {
+      let cid = null;
+      try {
+        cid = localStorage.getItem("gemma4-demo.chat_id");
+      } catch {
+        /* ignore */
+      }
+      try {
+        await refreshSessionsList(cid);
+      } catch {
+        /* ignore */
+      }
+    }
   } catch (e) {
     cancelAssistantMarkdownRender();
     if (pending?.body) {
@@ -1257,6 +1273,7 @@ if (newChatBtnEl) {
         // ignore
       }
       clearMessagesUi();
+      resetChatToLanding();
       await refreshSessionsList(id);
       setActiveSessionUi(id);
     } catch {
@@ -1297,7 +1314,8 @@ if (authFormEl) {
       // Reset guest chat when user logs in
       resetGuestChat();
       clearMessagesUi();
-      await ensureLoggedIn({ forceNewChat: true });
+      clearChatId();
+      await ensureLoggedIn();
     } catch (err) {
       setAuthHint(String(err?.message || err));
     } finally {
@@ -1322,7 +1340,8 @@ if (authRegisterBtnEl) {
       // Reset guest chat when user signs up
       resetGuestChat();
       clearMessagesUi();
-      await ensureLoggedIn({ forceNewChat: true });
+      clearChatId();
+      await ensureLoggedIn();
     } catch (err) {
       setAuthHint(String(err?.message || err));
     } finally {
