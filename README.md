@@ -31,8 +31,9 @@ Create a database (example name: `gemma4_demo`) and run the schema:
 ```bash
 psql -U postgres -h 127.0.0.1 -c "create database gemma4_demo;"
 psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/001_auth.sql
-psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/003_chat_history.sql
-psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/004_chat_message_attachments.sql
+psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/002_chat_history.sql
+psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/003_chat_message_attachments.sql
+psql -U postgres -h 127.0.0.1 -d gemma4_demo -f sql/004_chat_thread_title.sql
 ```
 
 ### 3) Configure `.env`
@@ -57,33 +58,51 @@ Open the site; you’ll see a login/register popup first.
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 
-## Run
-
-```bash
-npm run dev
-```
-
-Open `http://localhost:3000`.
-
 ## Docker
 
-### Build + run (Docker)
+### Configure `.env` (recommended)
+
+Create `.env` from the example and set at least:
+
+- `HOST`: your **host IP** (used for port publishing default + displayed URL)
+- `PORT`: the **host port** you want to open in browser (example: `3003`)
+- `API_BASE_URL`: your upstream API (example: `http://99.64.152.85:5000`)
+- `SESSION_SECRET`: a long random string
+
+Example:
+
+```bash
+cp .env.example .env
+```
+
+### Build + run (Docker, no database)
 
 ```bash
 docker build -t inventec-ai-studio .
-docker run --rm -p 3000:3000 ^
-  -e HOST=0.0.0.0 ^
-  -e PORT=3000 ^
-  -e API_BASE_URL=http://99.64.152.85:5000 ^
+docker run --rm -p 3000:3000 \
+  -e HOST=0.0.0.0 \
+  -e PORT=3000 \
+  -e API_BASE_URL=http://99.64.152.85:5000 \
   inventec-ai-studio
 ```
 
 Open `http://localhost:3000`.
 
-### Run (Docker Compose)
+### Run (Docker Compose, with Postgres)
 
 ```bash
 docker compose up --build
+```
+
+### Create the database schema (Docker Compose)
+
+If you see errors like `relation "users" does not exist`, run the SQL migrations into the `db` container:
+
+```bash
+docker compose exec -T db psql -U postgres -d "${POSTGRES_DB:-gemma4_database}" < sql/001_auth.sql
+docker compose exec -T db psql -U postgres -d "${POSTGRES_DB:-gemma4_database}" < sql/002_chat_history.sql
+docker compose exec -T db psql -U postgres -d "${POSTGRES_DB:-gemma4_database}" < sql/003_chat_message_attachments.sql
+docker compose exec -T db psql -U postgres -d "${POSTGRES_DB:-gemma4_database}" < sql/004_chat_thread_title.sql
 ```
 
 ### Persistence in Docker
@@ -101,8 +120,9 @@ Then run the schema files inside the repo (from your host):
 
 ```bash
 psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/001_auth.sql
-psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/003_chat_history.sql
-psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/004_chat_message_attachments.sql
+psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/002_chat_history.sql
+psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/003_chat_message_attachments.sql
+psql -U postgres -h 127.0.0.1 -p 5432 -d gemma4_database -f sql/004_chat_thread_title.sql
 ```
 
 ## What it sends upstream

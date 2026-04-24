@@ -18,6 +18,7 @@ const authRegisterBtnEl = el("authRegisterBtn");
 const authLoginBtnEl = el("authLoginBtn");
 const authTitleEl = el("authTitle");
 const authSubtitleEl = el("authSubtitle");
+const authCloseBtnEl = el("authCloseBtn");
 const loginBtnEl = el("loginBtn");
 const signupBtnEl = el("signupBtn");
 const logoutBtnEl = el("logoutBtn");
@@ -319,13 +320,11 @@ function setAuthMode(mode) {
   if (authPassEl) authPassEl.setAttribute("autocomplete", m === "signup" ? "new-password" : "current-password");
 }
 
-// Close login modal when clicking outside the panel
-if (authGateEl) {
-  authGateEl.addEventListener("click", (e) => {
-    if (e.target === authGateEl) {
-      showAuthGate(false);
-      setAuthHint("");
-    }
+// Close login modal only via the X button (not by clicking the backdrop).
+if (authCloseBtnEl) {
+  authCloseBtnEl.addEventListener("click", () => {
+    showAuthGate(false);
+    setAuthHint("");
   });
 }
 
