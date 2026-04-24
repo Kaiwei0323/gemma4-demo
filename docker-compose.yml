@@ -9,4 +9,29 @@ services:
       API_BASE_URL: "${API_BASE_URL:-http://99.64.152.85:5000}"
       # Startup log URL: override with PUBLIC_URL, or defaults from project .env HOST + PORT (published host:port, not container 3000)
       PUBLIC_URL: "${PUBLIC_URL:-http://${HOST:-127.0.0.1}:${PORT:-3000}}"
+      # Auth + chat history (Postgres)
+      # IMPORTANT: inside Compose, use host "db" (NOT 127.0.0.1)
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-gemma4_database}"
+      SESSION_SECRET: "${SESSION_SECRET:-dev-unsafe-secret-change-me}"
+    depends_on:
+      - db
+    volumes:
+      # Persist uploaded files (images/videos) on the host
+      - ./uploads:/app/uploads
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-gemma4_database}"
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+    ports:
+      # Optional: expose to host for psql / debugging
+      - "${PGPORT:-5432}:5432"
+    volumes:
+      # Persist Postgres data across container restarts
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
 

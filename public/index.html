@@ -21,9 +21,61 @@
             <div class="title__main">AI Studio</div>
           </div>
         </div>
+        <div class="header__actions">
+          <button class="header__btn" type="button" id="loginBtn" title="Log in" aria-label="Log in">Log in</button>
+          <button class="header__btn header__btn--primary" type="button" id="signupBtn" title="Sign up for free" aria-label="Sign up for free">
+            Sign up for free
+          </button>
+          <button class="header__btn" type="button" id="logoutBtn" title="Logout" aria-label="Logout">Logout</button>
+        </div>
       </header>
 
       <main class="main">
+        <aside class="sessions" id="sessions" aria-label="Chat sessions">
+          <div class="sessions__head">
+            <div class="sessions__title">Chats</div>
+            <button class="sessions__new" type="button" id="newChatBtn" title="New chat" aria-label="New chat">
+              New chat
+            </button>
+          </div>
+          <div class="sessions__list" id="sessionsList" role="list"></div>
+        </aside>
+
+        <section class="confirm" id="confirm" aria-hidden="true">
+          <div class="confirm__panel" role="dialog" aria-modal="true" aria-label="Confirm">
+            <div class="confirm__title" id="confirmTitle">Confirm</div>
+            <div class="confirm__body" id="confirmBody">Are you sure?</div>
+            <div class="confirm__row">
+              <button class="confirm__btn confirm__btn--secondary" type="button" id="confirmCancelBtn">Cancel</button>
+              <button class="confirm__btn confirm__btn--danger" type="button" id="confirmOkBtn">Delete</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="authgate" id="authGate" aria-hidden="true">
+          <div class="authgate__panel" role="dialog" aria-modal="true" aria-label="Login">
+            <div class="authgate__title" id="authTitle">Sign in</div>
+            <div class="authgate__subtitle" id="authSubtitle">Sign in or create an account.</div>
+            <form class="authgate__form" id="authForm">
+              <label class="authgate__label">
+                <span>Email</span>
+                <input class="authgate__input" id="authUser" autocomplete="username" inputmode="email" />
+              </label>
+              <label class="authgate__label">
+                <span>Password</span>
+                <input class="authgate__input" id="authPass" type="password" autocomplete="current-password" />
+              </label>
+              <div class="authgate__row">
+                <button class="authgate__btn" type="submit" id="authLoginBtn">Login</button>
+                <button class="authgate__btn authgate__btn--secondary" type="button" id="authRegisterBtn">
+                  Register
+                </button>
+              </div>
+              <div class="authgate__hint" id="authHint" aria-live="polite"></div>
+            </form>
+          </div>
+        </section>
+
         <section class="chat chat--landing" id="chat">
           <div class="welcome" id="welcome">Welcome to Inventec AI Studio!</div>
           <div class="messages" id="messages"></div>

@@ -1,7 +1,7 @@
 const el = (id) => document.getElementById(id);
 
 const chatEl = el("chat");
-const welcomeEl = el("welcome");
+// NOTE: #welcome can be removed/recreated; query it when needed.
 const messagesEl = el("messages");
 const composerEl = el("composer");
 const textEl = el("text");
@@ -9,8 +9,405 @@ const fileEl = el("file");
 const fileHintEl = el("fileHint");
 const sendBtnEl = el("sendBtn");
 
+const authGateEl = el("authGate");
+const authFormEl = el("authForm");
+const authUserEl = el("authUser");
+const authPassEl = el("authPass");
+const authHintEl = el("authHint");
+const authRegisterBtnEl = el("authRegisterBtn");
+const authLoginBtnEl = el("authLoginBtn");
+const authTitleEl = el("authTitle");
+const authSubtitleEl = el("authSubtitle");
+const loginBtnEl = el("loginBtn");
+const signupBtnEl = el("signupBtn");
+const logoutBtnEl = el("logoutBtn");
+const sessionsEl = el("sessions");
+const sessionsListEl = el("sessionsList");
+const newChatBtnEl = el("newChatBtn");
+const mainEl = document.querySelector(".main");
+
+const confirmEl = el("confirm");
+const confirmTitleEl = el("confirmTitle");
+const confirmBodyEl = el("confirmBody");
+const confirmCancelBtnEl = el("confirmCancelBtn");
+const confirmOkBtnEl = el("confirmOkBtn");
+
 let chatOpened = false;
 let autoScrollEnabled = true;
+
+// Guest (not logged in) conversation memory. This is used to build messages[] for the model.
+const GUEST_MAX_MESSAGES = 60;
+/** @type {{ role: string, content: string }[]} */
+let guestMessages = [];
+
+function trimGuestMessages(msgs) {
+  if (!Array.isArray(msgs) || msgs.length <= GUEST_MAX_MESSAGES) return Array.isArray(msgs) ? msgs : [];
+  return msgs.slice(msgs.length - GUEST_MAX_MESSAGES);
+}
+
+function guestAppend(role, content) {
+  if (!role || typeof content !== "string") return;
+  guestMessages = trimGuestMessages([...guestMessages, { role, content }]);
+}
+
+function resetGuestChat() {
+  guestMessages = [];
+}
+
+function clearMessagesUi() {
+  if (!messagesEl) return;
+  messagesEl.innerHTML = "";
+}
+
+function resetChatToLanding() {
+  chatOpened = false;
+  if (chatEl) {
+    chatEl.classList.remove("chat--opened");
+    chatEl.classList.add("chat--landing");
+  }
+  // Recreate welcome if it was removed after first open.
+  const existingWelcome = document.getElementById("welcome");
+  if (!existingWelcome && chatEl) {
+    const w = document.createElement("div");
+    w.className = "welcome";
+    w.id = "welcome";
+    w.textContent = "Welcome to Inventec AI Studio!";
+    const msgs = document.getElementById("messages");
+    if (msgs && msgs.parentElement) {
+      msgs.parentElement.insertBefore(w, msgs);
+    } else {
+      chatEl.insertBefore(w, chatEl.firstChild);
+    }
+  } else if (existingWelcome) {
+    existingWelcome.classList.remove("welcome--hide");
+  }
+}
+
+function getOrCreateChatId() {
+  try {
+    const k = "gemma4-demo.chat_id";
+    const existing = localStorage.getItem(k);
+    if (existing && typeof existing === "string" && existing.trim()) return existing.trim();
+    const id = crypto?.randomUUID ? crypto.randomUUID() : String(Date.now());
+    localStorage.setItem(k, id);
+    return id;
+  } catch {
+    return crypto?.randomUUID ? crypto.randomUUID() : String(Date.now());
+  }
+}
+
+function clearChatId() {
+  try {
+    localStorage.removeItem("gemma4-demo.chat_id");
+  } catch {
+    // ignore
+  }
+}
+
+async function apiGetJson(url) {
+  const r = await fetch(url);
+  const data = await r.json().catch(() => null);
+  if (!r.ok) {
+    const err = data?.error || `HTTP ${r.status}`;
+    const details = data && typeof data === "object" && typeof data.details === "string" && data.details ? ` — ${data.details}` : "";
+    throw new Error(`${err}${details}`);
+  }
+  return data;
+}
+
+async function apiPostJson(url, body) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {})
+  });
+  const data = await r.json().catch(() => null);
+  if (!r.ok) {
+    const err = data?.error || `HTTP ${r.status}`;
+    const details = data && typeof data === "object" && typeof data.details === "string" && data.details ? ` — ${data.details}` : "";
+    throw new Error(`${err}${details}`);
+  }
+  return data;
+}
+
+async function apiDeleteJson(url) {
+  const r = await fetch(url, { method: "DELETE" });
+  const data = await r.json().catch(() => null);
+  if (!r.ok) {
+    const err = data?.error || `HTTP ${r.status}`;
+    const details = data && typeof data === "object" && typeof data.details === "string" && data.details ? ` — ${data.details}` : "";
+    throw new Error(`${err}${details}`);
+  }
+  return data;
+}
+
+let confirmResolve = null;
+function showConfirm({ title, body, okText, cancelText } = {}) {
+  if (!confirmEl) return Promise.resolve(false);
+  if (confirmTitleEl) confirmTitleEl.textContent = title || "Confirm";
+  if (confirmBodyEl) confirmBodyEl.textContent = body || "Are you sure?";
+  if (confirmOkBtnEl) confirmOkBtnEl.textContent = okText || "OK";
+  if (confirmCancelBtnEl) confirmCancelBtnEl.textContent = cancelText || "Cancel";
+
+  confirmEl.classList.add("confirm--show");
+  confirmEl.setAttribute("aria-hidden", "false");
+
+  return new Promise((resolve) => {
+    confirmResolve = resolve;
+    setTimeout(() => confirmCancelBtnEl?.focus?.(), 0);
+  });
+}
+
+function hideConfirm(result) {
+  if (!confirmEl) return;
+  confirmEl.classList.remove("confirm--show");
+  confirmEl.setAttribute("aria-hidden", "true");
+  const r = confirmResolve;
+  confirmResolve = null;
+  if (typeof r === "function") r(!!result);
+}
+
+if (confirmCancelBtnEl) confirmCancelBtnEl.addEventListener("click", () => hideConfirm(false));
+if (confirmOkBtnEl) confirmOkBtnEl.addEventListener("click", () => hideConfirm(true));
+if (confirmEl) {
+  confirmEl.addEventListener("click", (e) => {
+    if (e.target === confirmEl) hideConfirm(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && confirmEl.classList.contains("confirm--show")) hideConfirm(false);
+  });
+}
+
+function setSessionsVisible(show) {
+  if (!sessionsEl) return;
+  sessionsEl.classList.toggle("sessions--show", !!show);
+  if (mainEl) mainEl.classList.toggle("main--with-sessions", !!show);
+  try {
+    document.body.classList.toggle("layout--with-sessions", !!show);
+  } catch {
+    // ignore
+  }
+}
+
+function fmtTime(ts) {
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return String(ts || "");
+  }
+}
+
+function setActiveSessionUi(chatId) {
+  if (!sessionsListEl) return;
+  const items = sessionsListEl.querySelectorAll(".session");
+  items.forEach((el2) => {
+    el2.classList.toggle("session--active", el2.getAttribute("data-chat-id") === chatId);
+  });
+}
+
+async function refreshSessionsList(activeChatId) {
+  if (!sessionsListEl) return;
+  sessionsListEl.innerHTML = "";
+  const data = await apiGetJson("/api/history/chats");
+  const chats = Array.isArray(data?.chats) ? data.chats : [];
+  for (const c of chats) {
+    const id = String(c?.id || "");
+    const created_at = c?.created_at;
+    const title = typeof c?.title === "string" && c.title.trim() ? c.title.trim() : "New chat";
+    const row = document.createElement("div");
+    row.className = "session";
+    row.setAttribute("role", "listitem");
+    row.setAttribute("data-chat-id", id);
+    row.innerHTML = `<div class="session__top"><div class="session__time">${fmtTime(created_at)}</div><button class="session__menuBtn" type="button" title="Menu" aria-label="Menu">⋯</button></div><div class="session__title">${escapeHtml(title)}</div><div class="session__menu" hidden><button class="session__menuItem" type="button">Delete</button></div>`;
+    row.addEventListener("click", async () => {
+      await loadChatSession(id);
+    });
+    const menuBtn = row.querySelector(".session__menuBtn");
+    const menu = row.querySelector(".session__menu");
+    const delBtn = row.querySelector(".session__menuItem");
+    if (menuBtn && menu) {
+      menuBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const nextHidden = !menu.hasAttribute("hidden") ? true : false;
+        // Close other menus
+        sessionsListEl.querySelectorAll(".session__menu").forEach((m) => m.setAttribute("hidden", ""));
+        if (nextHidden) menu.setAttribute("hidden", "");
+        else menu.removeAttribute("hidden");
+      });
+    }
+    if (delBtn) {
+      delBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const ok = await showConfirm({
+          title: "Delete chat?",
+          body: "Delete this chat session? This cannot be undone.",
+          okText: "Delete",
+          cancelText: "Cancel"
+        });
+        if (!ok) return;
+        try {
+          await apiDeleteJson(`/api/history/chats/${encodeURIComponent(id)}`);
+          // If deleting active chat, clear it so ensureLoggedIn() will create a new one.
+          const currentId = (() => {
+            try {
+              return localStorage.getItem("gemma4-demo.chat_id");
+            } catch {
+              return null;
+            }
+          })();
+          if (currentId && currentId === id) {
+            clearChatId();
+            clearMessagesUi();
+          }
+          await ensureLoggedIn({ forceNewChat: !localStorage.getItem("gemma4-demo.chat_id") });
+        } catch (err) {
+          setAuthHint(String(err?.message || err));
+        }
+      });
+    }
+    sessionsListEl.appendChild(row);
+  }
+  if (activeChatId) setActiveSessionUi(activeChatId);
+}
+
+async function loadChatSession(chatId) {
+  if (!chatId) return;
+  // Ensure chat panel is in the opened state (otherwise landing UI can hide the history).
+  openChatIfNeeded();
+  clearMessagesUi();
+  const data = await apiGetJson(`/api/history/chats/${encodeURIComponent(chatId)}`);
+  const msgs = Array.isArray(data?.messages) ? data.messages : [];
+  for (const m of msgs) {
+    const role = m.role === "assistant" ? "assistant" : "user";
+    const attachment =
+      m.attachment_kind && m.attachment_url
+        ? { kind: m.attachment_kind, label: m.attachment_label || m.attachment_kind, url: m.attachment_url }
+        : null;
+    addMessage({ role, content: String(m.content || ""), meta: role, attachment });
+  }
+  try {
+    localStorage.setItem("gemma4-demo.chat_id", chatId);
+  } catch {
+    // ignore
+  }
+  setActiveSessionUi(chatId);
+  maybeAutoScroll();
+}
+
+function showAuthGate(show) {
+  if (!authGateEl) return;
+  if (show) {
+    authGateEl.classList.add("authgate--show");
+    authGateEl.setAttribute("aria-hidden", "false");
+    setTimeout(() => authUserEl?.focus?.(), 0);
+  } else {
+    authGateEl.classList.remove("authgate--show");
+    authGateEl.setAttribute("aria-hidden", "true");
+  }
+}
+
+function setAuthMode(mode) {
+  const m = mode === "signup" ? "signup" : "login";
+  if (authTitleEl) authTitleEl.textContent = m === "signup" ? "Sign up for free" : "Log in";
+  if (authSubtitleEl) authSubtitleEl.textContent = m === "signup" ? "Create an account to save chats." : "Welcome back.";
+
+  if (authLoginBtnEl) authLoginBtnEl.style.display = m === "login" ? "" : "none";
+  if (authRegisterBtnEl) authRegisterBtnEl.style.display = m === "signup" ? "" : "none";
+
+  if (authPassEl) authPassEl.setAttribute("autocomplete", m === "signup" ? "new-password" : "current-password");
+}
+
+// Close login modal when clicking outside the panel
+if (authGateEl) {
+  authGateEl.addEventListener("click", (e) => {
+    if (e.target === authGateEl) {
+      showAuthGate(false);
+      setAuthHint("");
+    }
+  });
+}
+
+function setAuthHint(msg) {
+  if (!authHintEl) return;
+  authHintEl.textContent = msg ? String(msg) : "";
+}
+
+async function authJson(url, body) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {})
+  });
+  const data = await r.json().catch(() => null);
+  if (!r.ok) {
+    const err = data?.error || `HTTP ${r.status}`;
+    const details =
+      data && typeof data === "object" && typeof data.details === "string" && data.details.trim() ? data.details.trim() : "";
+    throw new Error(details ? `${err} — ${details}` : err);
+  }
+  return data;
+}
+
+async function ensureLoggedIn({ forceNewChat = false } = {}) {
+  try {
+    const r = await fetch("/api/auth/me");
+    const data = await r.json().catch(() => null);
+    if (data?.user) {
+      showAuthGate(false);
+      if (loginBtnEl) loginBtnEl.style.display = "none";
+      if (signupBtnEl) signupBtnEl.style.display = "none";
+      if (logoutBtnEl) logoutBtnEl.style.display = "";
+      setSessionsVisible(true);
+
+      // After login, always start with a fresh DB chat session when requested.
+      let activeId = null;
+      try {
+        activeId = localStorage.getItem("gemma4-demo.chat_id");
+      } catch {
+        activeId = null;
+      }
+      if (forceNewChat) {
+        activeId = null;
+        try {
+          localStorage.removeItem("gemma4-demo.chat_id");
+        } catch {
+          // ignore
+        }
+      }
+      if (!activeId) {
+        if (sendBtnEl) sendBtnEl.disabled = true;
+        const created = await apiPostJson("/api/history/chats", {});
+        activeId = created?.chat?.id || null;
+        if (activeId) {
+          try {
+            localStorage.setItem("gemma4-demo.chat_id", activeId);
+          } catch {
+            // ignore
+          }
+        }
+        if (sendBtnEl) sendBtnEl.disabled = false;
+      }
+      await refreshSessionsList(activeId);
+      if (activeId) setActiveSessionUi(activeId);
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  showAuthGate(false);
+  if (loginBtnEl) loginBtnEl.style.display = "";
+  if (signupBtnEl) signupBtnEl.style.display = "";
+  if (logoutBtnEl) logoutBtnEl.style.display = "none";
+  setSessionsVisible(false);
+  if (sessionsListEl) sessionsListEl.innerHTML = "";
+  return false;
+}
+
+function normalizeEmail(s) {
+  return String(s || "").trim().toLowerCase();
+}
 
 function isNearBottom(container, thresholdPx = 80) {
   if (!container) return true;
@@ -86,53 +483,23 @@ if (messagesEl) {
   });
 }
 
-/** @type {{ role: string, content: string }[]} */
-let chatHistory = [];
-
-/** Max messages (user + assistant) kept for the next request; avoids huge payloads. */
-const MAX_CHAT_HISTORY_MESSAGES = 100;
-
-/**
- * Behavior only — no UI layout rules. How Markdown looks is decided in {@link renderBasicMarkdown}.
- * Marker string avoids double-prepending when merging with an existing system message.
- */
-const ASSISTANT_SYSTEM_MARKER = "[gemma4-demo-assistant-system]";
-const ASSISTANT_SYSTEM_PROMPT = [
-  "You are a helpful assistant.",
-  "Be concise and accurate. Use Markdown when it improves clarity.",
-  "Do not output raw HTML tags in your messages.",
-  "",
-  ASSISTANT_SYSTEM_MARKER
-].join("\n");
-
-function withAssistantSystemMessage(messages) {
-  const out = Array.isArray(messages) ? [...messages] : [];
-  if (out.length === 0) return out;
-  if (out[0].role === "system" && typeof out[0].content === "string") {
-    const c = out[0].content;
-    if (c.includes(ASSISTANT_SYSTEM_MARKER)) return out;
-    out[0] = { ...out[0], content: `${ASSISTANT_SYSTEM_PROMPT}\n\n${c}` };
-    return out;
+// Close session menus when clicking elsewhere
+document.addEventListener("click", (e) => {
+  if (!sessionsListEl) return;
+  const t = e.target;
+  if (t && typeof t.closest === "function") {
+    if (t.closest(".session__menu") || t.closest(".session__menuBtn")) return;
   }
-  return [{ role: "system", content: ASSISTANT_SYSTEM_PROMPT }, ...out];
-}
+  sessionsListEl.querySelectorAll(".session__menu").forEach((m) => m.setAttribute("hidden", ""));
+});
 
-function setChatHistory(next) {
-  chatHistory = trimChatHistory(Array.isArray(next) ? next : []);
-}
-
-function appendToChatHistory(message) {
-  if (!message || typeof message !== "object") return;
-  const role = message.role;
-  const content = message.content;
-  if (typeof role !== "string" || typeof content !== "string") return;
-  setChatHistory([...chatHistory, { role, content }]);
-}
+// Chat context is stored server-side in Postgres keyed by chat_id.
 
 function openChatIfNeeded() {
   if (chatOpened) return;
   chatOpened = true;
   if (chatEl) chatEl.classList.add("chat--opened");
+  const welcomeEl = document.getElementById("welcome");
   if (welcomeEl) {
     welcomeEl.classList.add("welcome--hide");
     setTimeout(() => {
@@ -488,11 +855,6 @@ function cancelAssistantMarkdownRender() {
   }
 }
 
-function trimChatHistory(messages) {
-  if (!Array.isArray(messages) || messages.length <= MAX_CHAT_HISTORY_MESSAGES) return messages;
-  return messages.slice(messages.length - MAX_CHAT_HISTORY_MESSAGES);
-}
-
 function formatAssistantResponse(payload, fallbackText) {
   if (payload && typeof payload === "object") {
     const parsedContent =
@@ -619,18 +981,6 @@ function classifyFile(file) {
   return "file";
 }
 
-function tryParseMessages(text) {
-  const trimmed = (text || "").trim();
-  if (!trimmed.startsWith("[")) return null;
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) return parsed;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function parseSseChunk(state, chunkText, onEvent) {
   // SSE frames are separated by blank line (\n\n). Each frame has lines like:
   // event: token
@@ -689,9 +1039,10 @@ async function send() {
     attachment
   });
 
-  // Conversation memory (chat-only). For file modes, upstream endpoints are single-turn.
-  if (!file) {
-    appendToChatHistory({ role: "user", content: text || "" });
+  // Guest in-browser memory (text-only). When logged in, DB history is used instead.
+  const isAuthed = logoutBtnEl && logoutBtnEl.style.display !== "none";
+  if (!isAuthed && !file) {
+    guestAppend("user", String(text || ""));
   }
 
   // Clear input right after sending (keep attachment until user removes it).
@@ -707,17 +1058,14 @@ async function send() {
   try {
     // Stream for chat and for uploads (image/video/audio).
     if (!file) {
-      const parsedMessages = tryParseMessages(text);
-      if (parsedMessages) {
-        // Power-user mode: if they paste a full messages array, treat it as the conversation state.
-        setChatHistory(parsedMessages);
-      }
-      const messages = withAssistantSystemMessage(trimChatHistory(parsedMessages || chatHistory));
+      const chat_id = getOrCreateChatId();
+      const isAuthed2 = logoutBtnEl && logoutBtnEl.style.display !== "none";
+      const messages = isAuthed2 ? undefined : guestMessages;
 
       const r = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages, max_new_tokens })
+        body: JSON.stringify({ chat_id, text, max_new_tokens, messages })
       });
 
       const metaRight = pending.wrapper?.querySelector(".msg__meta > div:last-child");
@@ -784,11 +1132,14 @@ async function send() {
         metaRight.textContent = `${autoMode} • ${r.status}${metrics}`;
       }
 
-      appendToChatHistory({ role: "assistant", content: String(finalPretty || "") });
+      if (!isAuthed2) {
+        guestAppend("assistant", String(finalPretty || ""));
+      }
     } else {
       const form = new FormData();
       form.append("max_new_tokens", String(max_new_tokens));
       form.append("text", text || "Describe this.");
+      form.append("chat_id", getOrCreateChatId());
 
       form.append("file", file);
 
@@ -872,6 +1223,121 @@ composerEl.addEventListener("submit", (e) => {
   e.preventDefault();
   send();
 });
+
+if (logoutBtnEl) {
+  logoutBtnEl.addEventListener("click", async () => {
+    logoutBtnEl.disabled = true;
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // ignore
+    } finally {
+      clearChatId();
+      showAuthGate(false);
+      logoutBtnEl.disabled = false;
+      // Back to guest mode
+      resetGuestChat();
+      clearMessagesUi();
+      resetChatToLanding();
+      setSessionsVisible(false);
+      if (sessionsListEl) sessionsListEl.innerHTML = "";
+      ensureLoggedIn();
+    }
+  });
+}
+
+if (newChatBtnEl) {
+  newChatBtnEl.addEventListener("click", async () => {
+    try {
+      const created = await apiPostJson("/api/history/chats", {});
+      const id = created?.chat?.id;
+      if (!id) return;
+      try {
+        localStorage.setItem("gemma4-demo.chat_id", id);
+      } catch {
+        // ignore
+      }
+      clearMessagesUi();
+      await refreshSessionsList(id);
+      setActiveSessionUi(id);
+    } catch {
+      // ignore
+    }
+  });
+}
+
+if (loginBtnEl) {
+  loginBtnEl.addEventListener("click", () => {
+    setAuthHint("");
+    setAuthMode("login");
+    showAuthGate(true);
+  });
+}
+
+if (signupBtnEl) {
+  signupBtnEl.addEventListener("click", () => {
+    setAuthHint("");
+    setAuthMode("signup");
+    showAuthGate(true);
+  });
+}
+
+if (authFormEl) {
+  authFormEl.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    setAuthHint("");
+    setAuthMode("login");
+    const username = normalizeEmail(authUserEl?.value || "");
+    const password = authPassEl?.value || "";
+    authLoginBtnEl && (authLoginBtnEl.disabled = true);
+    authRegisterBtnEl && (authRegisterBtnEl.disabled = true);
+    try {
+      await authJson("/api/auth/login", { username, password });
+      showAuthGate(false);
+      setAuthHint("");
+      // Reset guest chat when user logs in
+      resetGuestChat();
+      clearMessagesUi();
+      await ensureLoggedIn({ forceNewChat: true });
+    } catch (err) {
+      setAuthHint(String(err?.message || err));
+    } finally {
+      authLoginBtnEl && (authLoginBtnEl.disabled = false);
+      authRegisterBtnEl && (authRegisterBtnEl.disabled = false);
+    }
+  });
+}
+
+if (authRegisterBtnEl) {
+  authRegisterBtnEl.addEventListener("click", async () => {
+    setAuthHint("");
+    setAuthMode("signup");
+    const username = normalizeEmail(authUserEl?.value || "");
+    const password = authPassEl?.value || "";
+    authLoginBtnEl && (authLoginBtnEl.disabled = true);
+    authRegisterBtnEl && (authRegisterBtnEl.disabled = true);
+    try {
+      await authJson("/api/auth/register", { username, password });
+      showAuthGate(false);
+      setAuthHint("");
+      // Reset guest chat when user signs up
+      resetGuestChat();
+      clearMessagesUi();
+      await ensureLoggedIn({ forceNewChat: true });
+    } catch (err) {
+      setAuthHint(String(err?.message || err));
+    } finally {
+      authLoginBtnEl && (authLoginBtnEl.disabled = false);
+      authRegisterBtnEl && (authRegisterBtnEl.disabled = false);
+    }
+  });
+}
+
+// Update header auth buttons on load (guest-first)
+ensureLoggedIn();
+
+// Default modal mode
+setAuthMode("login");
 
 // Enter to send (Shift+Enter for newline)
 textEl.addEventListener("keydown", (e) => {

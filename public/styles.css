@@ -46,12 +46,237 @@ code {
   padding: 22px 18px 28px;
 }
 
+/* Logged-in layout: allow sidebar to hit viewport edge */
+body.layout--with-sessions .app {
+  max-width: none;
+  margin: 0;
+  padding-left: 0;
+}
+
+/* Keep a tiny gutter so the border isn't clipped by viewport */
+body.layout--with-sessions .sessions {
+  margin-left: 0;
+}
+
+/* Auth gate overlay */
+.authgate {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  z-index: 50;
+}
+
+.authgate--show {
+  display: flex;
+}
+
+.authgate__panel {
+  width: min(520px, 100%);
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.05));
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.authgate__title {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  font-size: 1.05rem;
+}
+
+.authgate__subtitle {
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.92rem;
+}
+
+.authgate__form {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.authgate__label span {
+  display: block;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 6px;
+}
+
+.authgate__input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text);
+  outline: none;
+}
+
+.authgate__input:focus {
+  border-color: rgba(120, 200, 255, 0.55);
+}
+
+.authgate__row {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.authgate__btn {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(230, 0, 18, 0.28);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.authgate__btn:hover {
+  background: rgba(230, 0, 18, 0.35);
+}
+
+.authgate__btn--secondary {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.authgate__btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.authgate__hint {
+  min-height: 1.25em;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* Confirm modal */
+.confirm {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  z-index: 60;
+}
+
+.confirm--show {
+  display: flex;
+}
+
+.confirm__panel {
+  width: min(520px, 100%);
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.05));
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.confirm__title {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  font-size: 1.05rem;
+}
+
+.confirm__body {
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.confirm__row {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  justify-content: flex-end;
+}
+
+.confirm__btn {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  font-weight: 650;
+  min-width: 110px;
+}
+
+.confirm__btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.confirm__btn--secondary {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.confirm__btn--secondary:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.confirm__btn--danger {
+  border-color: rgba(255, 77, 109, 0.45);
+  background: rgba(255, 77, 109, 0.18);
+}
+
+.confirm__btn--danger:hover {
+  background: rgba(255, 77, 109, 0.26);
+}
+
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 14px 14px 18px;
+}
+
+.header__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header__btn {
+  padding: 9px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.header__btn--primary {
+  border-color: rgba(230, 0, 18, 0.35);
+  background: rgba(230, 0, 18, 0.28);
+}
+
+.header__btn--primary:hover {
+  background: rgba(230, 0, 18, 0.35);
+}
+
+.header__btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.header__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .brand {
@@ -100,13 +325,191 @@ code {
 
 .main {
   display: grid;
+  /* Guest mode: single centered column */
   grid-template-columns: 1fr;
   gap: 16px;
+}
+
+.main--with-sessions {
+  /* Keep sidebar narrow; let chat have the space */
+  grid-template-columns: minmax(240px, 280px) minmax(560px, 1fr);
+  /* Logged-in: sessions on the left, chat on the right */
+  grid-template-areas: "sessions chat";
+}
+
+.main--with-sessions .chat {
+  grid-area: chat;
+  /* Prevent "squeezed" look on wide screens */
+  max-width: 1100px;
+  width: 100%;
+  justify-self: center;
+}
+
+.main--with-sessions .sessions {
+  display: flex;
+  flex-direction: column;
+  grid-area: sessions;
+  justify-self: stretch;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.sessions {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  /* Use inner padding on header/list so content aligns cleanly */
+  padding: 0;
+  display: none; /* shown only when logged in */
+  height: calc(100vh - 120px);
+  position: sticky;
+  top: 18px;
+  overflow: hidden;
+}
+
+/* sessions--show is kept for JS, but layout is controlled by .main--with-sessions */
+.sessions--show {
+  display: flex;
+  flex-direction: column;
+}
+
+.sessions__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 12px 10px;
+}
+
+.sessions__title {
+  font-weight: 750;
+}
+
+.sessions__new {
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(230, 0, 18, 0.35);
+  background: rgba(230, 0, 18, 0.22);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.sessions__new:hover {
+  background: rgba(230, 0, 18, 0.3);
+}
+
+.sessions__list {
+  overflow: auto;
+  padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+  position: relative;
+}
+
+.session__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.session__menuBtn {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.9);
+  border-radius: 10px;
+  width: 28px;
+  height: 24px;
+  line-height: 20px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.session__menuBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.session__menu {
+  position: absolute;
+  top: 36px;
+  right: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  border-radius: 12px;
+  padding: 6px;
+  min-width: 120px;
+  z-index: 5;
+}
+
+.session__menuItem {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.session__menuItem:hover {
+  background: rgba(255, 77, 109, 0.22);
+  color: #fff;
+}
+
+.session:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.session--active {
+  border-color: rgba(120, 200, 255, 0.42);
+  background: rgba(120, 200, 255, 0.08);
+}
+
+.session__id {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.66);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session__title {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session__time {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.78);
 }
 
 @media (max-width: 940px) {
   .main {
     grid-template-columns: 1fr;
+  }
+  .sessions {
+    display: none !important;
   }
 }
 
